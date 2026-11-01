@@ -24,7 +24,7 @@ Goose の `embed_shader` が使うシェーダコンパイラ（cute_spirv）を
 ```powershell
 git submodule update --init
 . ..\rhat\scripts\devshell.ps1                  # clang を PATH に
-.\scripts\run.ps1 test\triangle.rh -Build       # build\triangle.png も保存される
+.\scripts\run.ps1 test\triangle.rh -Build       # triangle.png をカレントディレクトリに保存
 ```
 
 `rhat` は `../rhat/build/Release/rhat.exe` を使います（`-Rhat` で変更）。
