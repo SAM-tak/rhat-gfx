@@ -8,9 +8,10 @@
 # and switches. Escape pauses. R restarts after death or finishing. --walk
 # holds W, for a scripted test with --frames.
 #
-# Read downwards: bytes -> pictures -> map -> rendering.
+# Read downwards: bytes -> pictures -> map -> movement -> game -> rendering.
 
 import^gfx
+import^audio
 let^ fs = import^ std.fs
 let^ math = import^ std.math
 
@@ -265,6 +266,8 @@ let^ load_sprites = p^ {
         let^ glyph = numbered("STCFN", c, 3)
         font.push(if^ c >= 33 and^ c < 96: patch(glyph[..]) el^: 0;)
     }
+    let^ status = ["STBAR", "STFST00", "STFST10", "STFST20", "STFST30", "STFST40", "STFDEAD0"]
+    for^ i from^ 0 to^ 6 { patch(status[i].bytes) }
     sky_picture := wall_texture("SKY1".bytes)
     let^ liquids = ["NUKAGE1", "NUKAGE2", "NUKAGE3", "FWATER1", "FWATER2", "FWATER3", "FWATER4"]
     for^ i from^ 0 to^ 6 { flat(liquids[i].bytes) }
@@ -469,30 +472,27 @@ def^ Actor {
            timer:f32^ = 0.0, pain:f32^ = 0.0, death:f32^ = 0.0, attacking:f32^ = 0.0 }
 }
 var^ player = Player{}
+# Counters and flags of the game and of the frame loop, in one record.
+def^ State {
+    self^{ game_time:f32^ = 0.0, damage_clock:f32^ = 0.0, secrets:i64^ = 0, total_secrets:i64^ = 0, won:bool^ = false^, message_time:f32^ = 0.0, next_fireball:i64^ = 0, kills:i64^ = 0, total_monsters:i64^ = 0, random_state:u64^ = 12345, sound_ready:bool^ = false^, wait_for_fire:bool^ = false^, fire_pending:bool^ = false^, accumulator:f32^ = 0.0, drawn:i64^ = 0, walking:bool^ = false^, quiet:bool^ = false^ }
+}
+var^ state = State{}
 var^ actors:Actor[..512] = []
-var^ game_time:f32^ = 0.0
-var^ damage_clock:f32^ = 0.0
-var^ secrets:i64^ = 0
-var^ total_secrets:i64^ = 0
-var^ won = false^
 var^ message:u8^[..160] = []
-var^ message_time:f32^ = 0.0
 
 let^ say = p^ text:string^ {
     message.clear()
     message.append(text.bytes[0 .. imin(text.bytes.len, 160)])
-    message_time := 3.5
+    state.message_time := 3.5
 }
-# Sounds come with the audio in the next part.
-let^ sound = p^ id:i64^, pos:F2 { }
 
 let^ reset_game = p^ {
     actors.clear()
-    secrets := 0
-    total_secrets := 0
-    game_time := 0.0
-    damage_clock := 0.0
-    won := false^
+    state.secrets := 0
+    state.total_secrets := 0
+    state.game_time := 0.0
+    state.damage_clock := 0.0
+    state.won := false^
     for^ i from^ 0 to^ lines.len - 1 { lines[i].activated := false^ }
     for^ i from^ 0 to^ sectors.len - 1 {
         let^ s = ref^ sectors[i]
@@ -501,7 +501,7 @@ let^ reset_game = p^ {
         s.motion := 0
         s.wait := 0.0
         s.secret_found := false^
-        if^ s.special = 9 { total_secrets += 1 }
+        if^ s.special = 9 { state.total_secrets += 1 }
     }
     player := Player{}
     let^ things = records("THINGS", 10)
@@ -516,10 +516,21 @@ let^ reset_game = p^ {
         }
     }
     require(have_start, "mini doom: missing player-one start")
-    say("FIND THE BLUE KEY AND THE EXIT.")
+    reset_actors()
+    say("FIND THE BLUE KEY AND THE EXIT.  H: HELP")
+}
+let^ reset_actors = p^ {
+    state.kills := 0
+    state.total_monsters := 0
+    state.random_state := 12345
+    state.next_fireball := 0
+    fireballs.clear()
+    for^ 1 to^ 64 { fireballs.push(Fireball{}) }
+    spawn_things()
+    if^ state.sound_ready { audio.stop_all() }
 }
 
-# --- collision, sight and walking ----------------------------------------------------
+# --- collision, sight and state.walking ----------------------------------------------------
 
 let^ nearest_on_line = f^ p:F2, a:F2, b:F2 -> F2 {
     let^ d = b - a
@@ -663,7 +674,7 @@ let^ activate_line = p^ index:i64^, crossing:bool^ {
     if^ crossing != (special = 2 or^ special = 88) { return^ }
     if^ special = 11 {
         lines[index].activated := true^
-        won := true^
+        state.won := true^
         sound(8, player.pos)
         say("LEVEL COMPLETE!  R: PLAY AGAIN")
     elif^ special = 1 or^ special = 26 or^ special = 117:
@@ -786,7 +797,7 @@ let^ move_sectors = p^ {
 }
 
 let^ hurt_player = p^ damage:i64^ {
-    if^ player.health <= 0 or^ won { return^ }
+    if^ player.health <= 0 or^ state.won { return^ }
     let^ absorbed = imin(player.armor, damage / 3)
     player.armor -= absorbed
     player.health := imax(0, player.health - damage + absorbed)
@@ -795,25 +806,349 @@ let^ hurt_player = p^ damage:i64^ {
     if^ player.health = 0 { say("YOU DIED.  R: TRY AGAIN") }
 }
 
-let^ tick = p^ direction:F2, running:bool^ {
-    game_time += STEP
-    message_time := fmax(0.0, message_time - STEP)
+let^ tick = p^ direction:F2, running:bool^, firing:bool^ {
+    state.game_time += STEP
+    state.message_time := fmax(0.0, state.message_time - STEP)
+    player.cooldown := fmax(0.0, player.cooldown - STEP)
+    player.flash := fmax(0.0, player.flash - STEP)
     player.hurt := fmax(0.0, player.hurt - STEP)
+    player.bonus := fmax(0.0, player.bonus - STEP)
     move_sectors()
     if^ player.health > 0 {
         walk(direction, running)
+        if^ firing { shoot() }
         let^ here = sector_at(player.pos)
         if^ sectors[here].special = 9 and^ !sectors[here].secret_found {
             sectors[here].secret_found := true^
-            secrets += 1
+            state.secrets += 1
             say("A SECRET IS REVEALED")
         }
-        damage_clock += STEP
-        if^ damage_clock >= 1.0 {
-            damage_clock -= 1.0
+        state.damage_clock += STEP
+        if^ state.damage_clock >= 1.0 {
+            state.damage_clock -= 1.0
             if^ sectors[here].special = 7 and^ player.z <= sectors[here].floor + 1.0 { hurt_player(5) }
         }
+        for^ i from^ 0 to^ actors.len - 1 {
+            let^ a = actors[i]
+            if^ a.alive and^ a.death = 0.0 and^ !a.solid and^ distance2(a.pos, player.pos) < 28.0 and^
+                math.abs(a.z - player.z) < 32.0 {
+                pickup(i)
+            }
+        }
     }
+    update_actors()
+}
+
+# --- monsters, pickups and sound -------------------------------------------------------
+
+def^ Fireball { self^{ pos:F2 = F2{}, z:f32^ = 0.0, velocity:F2 = F2{}, vz:f32^ = 0.0, life:f32^ = 0.0 } }
+var^ fireballs:Fireball[..64] = []
+var^ sounds:grow^ audio.Sound[] = []
+
+let^ random_int = p^ limit:i64^ -> i64^ {
+    state.random_state := (state.random_state * 1664525 + 1013904223) bitand^ 4294967295
+    return^ i64^(state.random_state bitshift^ -8) % limit
+}
+let^ monster = f^ kind:i64^ -> bool^ {
+    return^ kind = 3004 or^ kind = 9 or^ kind = 3001 or^ kind = 3002 or^ kind = 58
+}
+let^ monster_prefix = f^ kind:i64^ -> string^ {
+    return^ for^ kind: when^ 3004: "POSS" when^ 9: "SPOS" when^ 3001: "TROO" other^: "SARG";
+}
+let^ monster_health = f^ kind:i64^ -> i64^ {
+    return^ for^ kind: when^ 3004: 20 when^ 9: 30 when^ 3001: 60 other^: 150;
+}
+let^ thing_picture = f^ kind:i64^ -> string^ {
+    return^ for^ kind:
+        when^ 3004: "POSSA1" when^ 9: "SPOSA1" when^ 3001: "TROOA1" when^ 3002, 58: "SARGA1"
+        when^ 2001: "SHOTA0" when^ 2002: "MGUNA0" when^ 2003: "LAUNA0" when^ 2004: "PLASA0"
+        when^ 2005: "CSAWA0" when^ 2006: "BFUGA0" when^ 2007: "CLIPA0" when^ 2008: "SHELA0"
+        when^ 2010: "ROCKA0" when^ 2046: "BROKA0" when^ 2047: "CELLA0" when^ 2048: "AMMOA0"
+        when^ 2049: "SBOXA0" when^ 17: "CELPA0" when^ 8: "BPAKA0"
+        when^ 2011: "STIMA0" when^ 2012: "MEDIA0" when^ 2013: "SOULA0" when^ 2014: "BON1A0"
+        when^ 2015: "BON2A0" when^ 2018: "ARM1A0" when^ 2019: "ARM2A0" when^ 2023: "PSTRA0"
+        when^ 5: "BKEYA0" when^ 2035: "BAR1A0" when^ 2028: "COLUA0"
+        when^ 43: "TRE1A0" when^ 54: "TRE2A0" when^ 47: "SMITA0" when^ 48: "ELECA0"
+        when^ 10, 12: "PLAYW0" when^ 15: "PLAYN0" when^ 18: "POSSL0"
+        when^ 19: "SPOSL0" when^ 20: "TROOM0" when^ 21: "SARGN0" when^ 24: "POL5A0"
+        when^ 26: "POL6A0" when^ 60: "GOR4A0"
+        other^: "";
+}
+
+let^ load_sounds = p^ quiet:bool^ {
+    if^ quiet { return^ }
+    state.sound_ready := audio.open(48000)
+    if^ !state.sound_ready {
+        print^("audio unavailable; continuing silently")
+        return^
+    }
+    let^ names = ["DSPISTOL", "DSSHOTGN", "DSPUNCH", "DSPLPAIN", "DSITEMUP", "DSWPNUP", "DSDOROPN",
+                  "DSPSTART", "DSSWTCHN", "DSFIRSHT", "DSBAREXP", "DSPODTH1"]
+    for^ i from^ 0 to^ 11 {
+        let^ data = lump(names[i].bytes)
+        require(data.len >= 8 and^ u16le(data, 0) = 3, "mini doom: expected a DMX PCM sound")
+        let^ rate = u16le(data, 2)
+        let^ count = u32le(data, 4)
+        require(rate >= 8000 and^ rate <= 192000 and^ count > 32 and^ 8 + count <= data.len,
+            "mini doom: bad DMX sound")
+        var^ pcm:grow^ f32^[] = []
+        # DMX pads each end with sixteen samples.
+        for^ j from^ 16 to^ count - 17 { pcm.push((f32^(data[8 + j]) - 128.0) / 128.0) }
+        sounds.push(audio.sound(pcm[..], rate, 1))
+    }
+}
+let^ sound = p^ id:i64^, pos:F2 {
+    if^ !state.sound_ready { return^ }
+    let^ delta = pos - player.pos
+    let^ dist = length2(delta)
+    let^ right = F2{x=math.sin(player.yaw), y=-math.cos(player.yaw)}
+    let^ pan = fclamp(dot2(delta, right) / fmax(dist, 1.0), -1.0, 1.0)
+    audio.play(sounds[id], fclamp(1.0 - dist / 1400.0, 0.0, 0.7), pan, 1.0, false^)
+}
+
+let^ spawn_things = p^ {
+    let^ things = records("THINGS", 10)
+    for^ i from^ 0 to^ things.len / 10 - 1 {
+        let^ at = i * 10
+        let^ pos = point(things, at)
+        let^ kind = u16le(things, at + 6)
+        let^ flags = u16le(things, at + 8)
+        # Skill bit 2 is medium; bit 16 marks things for multiplayer only.
+        if^ (flags bitand^ 2) = 0 or^ (flags bitand^ 16) != 0 { continue^ }
+        let^ name = thing_picture(kind)
+        if^ name.bytes.len = 0 { continue^ }
+        let^ picture = find_picture(name.bytes, 0)
+        require(picture >= 0, "mini doom: missing thing sprite")
+        let^ enemy = monster(kind)
+        let^ solid = enemy or^ kind = 2035 or^ kind = 2028 or^ kind = 43 or^ kind = 54 or^ kind = 47 or^ kind = 48
+        actors.push(Actor{pos=pos, z=sectors[sector_at(pos)].floor, kind=kind, picture=picture,
+            radius=if^ kind = 3002 or^ kind = 58: f32^(30.0) el^: 16.0;,
+            health=if^ enemy: monster_health(kind) el^ kind = 2035: 20 el^: 0;,
+            solid=solid, timer=0.5 + f32^(i % 10) * 0.1})
+        if^ enemy { state.total_monsters += 1 }
+    }
+}
+
+let^ pickup = p^ index:i64^ {
+    let^ kind = actors[index].kind
+    var^ taken = false^
+    var^ text = "PICKED UP AMMO"
+    if^ kind = 5 {
+        player.blue_key := true^
+        taken := true^
+        text := "BLUE KEY"
+    elif^ kind = 2001:
+        taken := !player.shotgun or^ player.shells < 100
+        if^ !player.shotgun { player.weapon := 3 }
+        player.shotgun := true^
+        player.shells := imin(100, player.shells + 8)
+        text := "SHOTGUN"
+    elif^ kind = 2002:
+        taken := !player.chaingun or^ player.bullets < 300
+        if^ !player.chaingun { player.weapon := 4 }
+        player.chaingun := true^
+        player.bullets := imin(300, player.bullets + 20)
+        text := "CHAINGUN"
+    elif^ kind = 2008 or^ kind = 2049:
+        taken := player.shells < 100
+        player.shells := imin(100, player.shells + (if^ kind = 2049: 20 el^: 4;))
+        text := "SHELLS"
+    elif^ kind = 2007 or^ kind = 2048 or^ kind = 8 or^ kind = 2010 or^ kind = 2046 or^ kind = 2047 or^
+         kind = 17 or^ kind = 2003 or^ kind = 2004 or^ kind = 2005:
+        taken := player.bullets < 300
+        player.bullets := imin(300, player.bullets + (if^ kind = 2048 or^ kind = 8: 50 el^: 10;))
+        if^ kind = 8 { player.shells := imin(100, player.shells + 8) }
+        if^ kind != 2007 and^ kind != 2048 and^ kind != 8 { text := "SALVAGED BULLETS" }
+    elif^ kind = 2011 or^ kind = 2012 or^ kind = 2013 or^ kind = 2014 or^ kind = 2023:
+        let^ maximum:i64^ = if^ kind = 2013 or^ kind = 2014: 200 el^: 100;
+        taken := player.health < maximum
+        let^ amount:i64^ = for^ kind: when^ 2014: 1 when^ 2011: 10 when^ 2012: 25 other^: 100;
+        if^ taken { player.health := imin(maximum, player.health + amount) }
+        text := "HEALTH"
+    elif^ kind = 2015 or^ kind = 2018 or^ kind = 2019:
+        let^ amount:i64^ = for^ kind: when^ 2015: 1 when^ 2018: 100 other^: 200;
+        taken := if^ kind = 2015: player.armor < 200 el^: player.armor < amount;
+        if^ taken { player.armor := if^ kind = 2015: player.armor + 1 el^: amount; }
+        text := "ARMOR"
+    }
+    if^ taken {
+        actors[index].alive := false^
+        player.bonus := 0.18
+        say(text)
+        sound(if^ kind = 2001 or^ kind = 2002: 5 el^: 4;, player.pos)
+    }
+}
+let^ damage_actor = p^ index:i64^, damage:i64^ {
+    let^ a = ref^ actors[index]
+    if^ !a.alive or^ a.health <= 0 { return^ }
+    a.health -= damage
+    a.awake := true^
+    a.pain := 0.18
+    if^ a.health > 0 { return^ }
+    a.solid := false^
+    a.death := 0.001
+    let^ kind = a.kind
+    let^ pos = a.pos
+    if^ monster(kind) {
+        state.kills += 1
+        sound(11, pos)
+    }
+    # Barrels explode in update_actors, not here: no recursive chain reactions.
+}
+let^ shoot = p^ {
+    if^ player.cooldown > 0.0 or^ player.health <= 0 { return^ }
+    let^ weapon = player.weapon
+    if^ (weapon = 3 and^ player.shells = 0) or^ ((weapon = 2 or^ weapon = 4) and^ player.bullets = 0) {
+        player.weapon := 1
+        say("OUT OF AMMO - FISTS")
+        return^
+    }
+    if^ weapon = 3 {
+        player.shells -= 1
+    elif^ weapon != 1:
+        player.bullets -= 1
+    }
+    player.cooldown := for^ weapon: when^ 1: f32^(0.42) when^ 2: f32^(0.28) when^ 3: f32^(0.85) other^: f32^(0.10);
+    player.flash := 0.09
+    sound(if^ weapon = 1: 2 el^ weapon = 3: 1 el^: 0;, player.pos)
+    let^ pellets:i64^ = if^ weapon = 3: 7 el^: 1;
+    for^ pellet from^ 1 to^ pellets { fire_pellet(weapon) }
+    # Noise wakes nearby monsters only through open sight lines.
+    for^ i from^ 0 to^ actors.len - 1 {
+        let^ a = actors[i]
+        if^ monster(a.kind) and^ distance2(a.pos, player.pos) < 1000.0 and^
+            visible(a.pos, a.z + 32.0, player.pos, player.z + 32.0) {
+            actors[i].awake := true^
+        }
+    }
+}
+let^ fire_pellet = p^ weapon:i64^ {
+    let^ spread = if^ weapon = 3: f32^(random_int(101) - 50) * 0.0015
+                  el^ weapon = 4: f32^(random_int(101) - 50) * 0.0005 el^: 0.0;
+    let^ direction = F2{x=math.cos(player.yaw + spread), y=math.sin(player.yaw + spread)}
+    var^ nearest = if^ weapon = 1: f32^(70.0) el^: 1800.0;
+    var^ target:i64^ = -1
+    for^ i from^ 0 to^ actors.len - 1 {
+        let^ a = actors[i]
+        if^ !a.alive or^ a.health <= 0 { continue^ }
+        let^ delta = a.pos - player.pos
+        let^ along = dot2(delta, direction)
+        let^ across = math.abs(cross2(direction, delta))
+        if^ along <= 0.0 or^ along >= nearest or^ across > a.radius { continue^ }
+        # Classic horizontal aiming, with a modest automatic vertical aim for
+        # stairs; the ray through the opening must still be clear.
+        if^ math.abs(a.z + 28.0 - (player.z + 41.0)) > 40.0 + along * 0.5 { continue^ }
+        if^ visible(player.pos, player.z + 41.0, a.pos, a.z + 28.0) {
+            target := i
+            nearest := along
+        }
+    }
+    if^ target >= 0 {
+        let^ damage:i64^ = if^ weapon = 1: 12 + random_int(12) el^: 5 * (1 + random_int(3));
+        damage_actor(target, damage)
+    }
+}
+let^ launch_fireball = p^ a:Actor {
+    let^ delta = player.pos - a.pos
+    let^ dist = fmax(1.0, length2(delta))
+    fireballs[state.next_fireball] := Fireball{pos=a.pos, z=a.z + 32.0, velocity=delta * (280.0 / dist),
+        vz=(player.z + 30.0 - a.z - 32.0) * 280.0 / dist, life=5.0}
+    state.next_fireball := (state.next_fireball + 1) % fireballs.len
+    sound(9, a.pos)
+}
+# A barrel's blast, once, as it starts to burst.
+let^ explode = p^ i:i64^ {
+    let^ a = actors[i]
+    sound(10, a.pos)
+    let^ dist = distance2(a.pos, player.pos)
+    if^ dist < 160.0 and^ visible(a.pos, a.z + 24.0, player.pos, player.z + 32.0) {
+        hurt_player(imax(0, i64^(120.0 - dist * 0.7)))
+    }
+    for^ j from^ 0 to^ actors.len - 1 {
+        let^ other = actors[j]
+        let^ d = distance2(a.pos, other.pos)
+        if^ j != i and^ other.health > 0 and^ d < 160.0 and^ visible(a.pos, a.z + 24.0, other.pos, other.z + 28.0) {
+            damage_actor(j, imax(0, i64^(120.0 - d * 0.7)))
+        }
+    }
+}
+let^ update_dying = p^ i:i64^ {
+    let^ old = actors[i].death
+    actors[i].death += STEP
+    let^ a = actors[i]
+    if^ a.kind = 2035 and^ old < 0.15 and^ a.death >= 0.15 { explode(i) }
+    if^ a.kind = 2035 and^ a.death > 0.65 { actors[i].alive := false^ }
+    # Guards drop a clip or a shotgun once their corpse settles, as a separate
+    # actor so that the corpse stays visible.
+    if^ old < 0.8 and^ a.death >= 0.8 and^ (a.kind = 3004 or^ a.kind = 9) and^ actors.len < 512 {
+        let^ kind:i64^ = if^ a.kind = 9: 2001 el^: 2007;
+        actors.push(Actor{pos=a.pos, z=a.z, kind=kind, picture=find_picture(thing_picture(kind).bytes, 0)})
+    }
+}
+let^ attack = p^ i:i64^, dist:f32^ {
+    let^ a = actors[i]
+    let^ melee = a.kind = 3002 or^ a.kind = 58
+    if^ melee and^ dist >= a.radius + 38.0 { return^ }
+    actors[i].attacking := 0.28
+    actors[i].timer := 1.0 + f32^(random_int(100)) * 0.012
+    if^ a.kind = 3001 and^ dist > 75.0 {
+        launch_fireball(a)
+    elif^ melee or^ dist < 75.0:
+        hurt_player(5 + random_int(12))
+    else^:
+        sound(0, a.pos)
+        if^ random_int(100) < imax(20, 85 - i64^(dist * 0.08)) {
+            hurt_player(if^ a.kind = 9: 6 + random_int(10) el^: 3 + random_int(7);)
+        }
+    }
+}
+let^ update_monster = p^ i:i64^ {
+    let^ a = ref^ actors[i]
+    a.pain := fmax(0.0, a.pain - STEP)
+    a.attacking := fmax(0.0, a.attacking - STEP)
+    a.timer -= STEP
+    let^ delta = player.pos - a.pos
+    let^ dist = length2(delta)
+    let^ sees = player.health > 0 and^ dist < 1500.0 and^ visible(a.pos, a.z + 36.0, player.pos, player.z + 32.0)
+    if^ sees { a.awake := true^ }
+    if^ !a.awake or^ player.health <= 0 or^ a.pain > 0.0 { return^ }
+    if^ sees and^ a.timer <= 0.0 and^ (dist < 650.0 or^ dist < a.radius + 38.0) { attack(i, dist) }
+    let^ b = actors[i]
+    if^ b.attacking > 0.0 or^ dist < 1.0 { return^ }
+    let^ speed = if^ b.kind = 3002 or^ b.kind = 58: f32^(105.0) el^: 58.0;
+    let^ moved = slide(b.pos, b.z, delta * (speed * STEP / dist), b.radius, i, true^)
+    actors[i].pos := moved
+    actors[i].z := fmax(b.z, sectors[sector_at(moved)].floor)
+}
+let^ update_fireballs = p^ {
+    for^ i from^ 0 to^ fireballs.len - 1 {
+        let^ f = fireballs[i]
+        if^ f.life <= 0.0 { continue^ }
+        let^ next = f.pos + f.velocity * STEP
+        let^ next_z = f.z + f.vz * STEP
+        if^ !visible(f.pos, f.z, next, next_z) {
+            fireballs[i].life := 0.0
+            continue^
+        }
+        fireballs[i] := Fireball{pos=next, z=next_z, velocity=f.velocity, vz=f.vz, life=f.life - STEP}
+        if^ distance2(next, player.pos) < 22.0 and^ next_z > player.z and^ next_z < player.z + PLAYER_HEIGHT {
+            hurt_player(10 + random_int(15))
+            fireballs[i].life := 0.0
+        }
+    }
+}
+let^ update_actors = p^ {
+    for^ i from^ 0 to^ actors.len - 1 {
+        if^ !actors[i].alive { continue^ }
+        if^ actors[i].death > 0.0 {
+            update_dying(i)
+            continue^
+        }
+        let^ floor_z = sectors[sector_at(actors[i].pos)].floor
+        actors[i].z := fmax(floor_z, actors[i].z - 220.0 * STEP)
+        if^ monster(actors[i].kind) { update_monster(i) }
+    }
+    update_fireballs()
 }
 
 # --- meshes: world units become (x, height, -y) ----------------------------------
@@ -830,15 +1165,15 @@ let^ vertex = f^ p:F2, height:f32^, u:f32^, v:f32^, picture:i64^, light:f32^ -> 
 }
 let^ lighting = f^ sector:i64^ -> f32^ {
     let^ s = sectors[sector]
-    if^ s.special = 1 and^ (i64^(game_time * 9.0) + sector * 7) % 11 < 3 { return^ s.light * 0.4 }
-    if^ s.special = 12 and^ game_time - math.floor(game_time) < 0.15 { return^ s.light * 0.35 }
+    if^ s.special = 1 and^ (i64^(state.game_time * 9.0) + sector * 7) % 11 < 3 { return^ s.light * 0.4 }
+    if^ s.special = 12 and^ state.game_time - math.floor(state.game_time) < 0.15 { return^ s.light * 0.35 }
     return^ fmax(0.18, s.light)
 }
 # Liquids cycle through their numbered frames.
 let^ animated_flat = f^ id:i64^ -> i64^ {
     if^ id < 0 { return^ sky_picture }
     let^ name = pictures[id].name
-    let^ frame = i64^(game_time * 4.0)
+    let^ frame = i64^(state.game_time * 4.0)
     if^ name.len = 7 and^ same(name[0 .. 6], "NUKAGE".bytes) {
         let^ next = numbered("NUKAGE", 1 + frame % 3, 1)
         return^ find_picture(next[..], 2)
@@ -937,6 +1272,212 @@ let^ world_mesh = p^ out:ref^ grow^ Vertex[] {
     }
 }
 
+# The picture of an animation frame: prefix, frame letter, rotation 0 or 1.
+let^ frame_picture = f^ prefix:string^, frame:i64^ -> i64^ {
+    var^ name:u8^[..8] = []
+    name.append(prefix.bytes)
+    name.push(u8^(65 + frame))
+    name.push(48)
+    var^ id = find_picture(name[..], 0)
+    if^ id < 0 {
+        name[name.len - 1] := 49
+        id := find_picture(name[..], 0)
+    }
+    require(id >= 0, "mini doom: missing sprite frame")
+    return^ id
+}
+let^ actor_picture = f^ a:Actor -> i64^ {
+    if^ a.kind = 2035 {
+        if^ a.death > 0.0 { return^ frame_picture("BEXP", imin(4, i64^(a.death * 8.0))) }
+        return^ frame_picture("BAR1", i64^(state.game_time * 4.0) % 2)
+    }
+    if^ !monster(a.kind) { return^ a.picture }
+    let^ prefix = monster_prefix(a.kind)
+    if^ a.death > 0.0 {
+        let^ first:i64^ = if^ a.kind = 3001 or^ a.kind = 3002 or^ a.kind = 58: 8 el^: 7;
+        let^ last:i64^ = if^ a.kind = 3002 or^ a.kind = 58: 5 el^: 4;
+        return^ frame_picture(prefix, first + imin(last, i64^(a.death * 7.0)))
+    }
+    if^ a.pain > 0.0 { return^ frame_picture(prefix, if^ a.kind = 3004 or^ a.kind = 9: 6 el^: 7;) }
+    if^ a.attacking > 0.0 { return^ frame_picture(prefix, 5) }
+    return^ frame_picture(prefix, if^ a.awake: i64^(state.game_time * 8.0) % 4 el^: 0;)
+}
+let^ billboard = p^ out:ref^ grow^ Vertex[], pos:F2, bottom:f32^, id:i64^, shade:f32^ {
+    let^ p = pictures[id]
+    let^ right = F2{x=math.sin(player.yaw), y=-math.cos(player.yaw)}
+    # The WAD's anchor keeps different animation frames registered.
+    let^ a = pos - right * f32^(p.left)
+    let^ b = a + right * f32^(p.w)
+    let^ top = bottom + f32^(p.top)
+    add_wall(out, a, b, top - f32^(p.h), top, id, F2{}, top, shade)
+}
+let^ sprite_mesh = p^ out:ref^ grow^ Vertex[] {
+    for^ i from^ 0 to^ actors.len - 1 {
+        let^ a = actors[i]
+        if^ !a.alive { continue^ }
+        let^ shade = if^ a.kind = 2035 and^ a.death > 0.0: f32^(1.0) el^: lighting(sector_at(a.pos));
+        billboard(out, a.pos, a.z, actor_picture(a), shade)
+    }
+    for^ i from^ 0 to^ fireballs.len - 1 {
+        let^ f = fireballs[i]
+        if^ f.life > 0.0 {
+            billboard(out, f.pos, f.z - 8.0, frame_picture("BAL1", i64^(state.game_time * 8.0) % 2), 1.0)
+        }
+    }
+}
+
+# --- a small HUD in the WAD's own font and weapon patches ------------------------------
+
+def^ HudVertex {
+    self^{ x:f32^ = 0.0, y:f32^ = 0.0, u:f32^ = 0.0, v:f32^ = 0.0, rx:f32^ = 0.0, ry:f32^ = 0.0,
+           rw:f32^ = 0.0, rh:f32^ = 0.0, r:f32^ = 1.0, g:f32^ = 1.0, b:f32^ = 1.0, a:f32^ = 1.0 }
+}
+def^ Color { self^{ r:f32^ = 1.0, g:f32^ = 1.0, b:f32^ = 1.0, a:f32^ = 1.0 } }
+let^ WHITE = Color{}
+
+let^ hud_point = f^ x:f32^, y:f32^, u:f32^, v:f32^, id:i64^, color:Color -> HudVertex {
+    let^ p = pictures[id]
+    return^ HudVertex{x=x, y=y, u=u, v=v, rx=f32^(p.x), ry=f32^(p.y), rw=f32^(p.w), rh=f32^(p.h),
+        r=color.r, g=color.g, b=color.b, a=color.a}
+}
+let^ hud_quad = p^ out:ref^ grow^ HudVertex[], x:f32^, y:f32^, w:f32^, h:f32^, id:i64^, color:Color {
+    let^ c0 = hud_point(x, y, 0.0, 0.0, id, color)
+    let^ c1 = hud_point(x + w, y, 1.0, 0.0, id, color)
+    let^ c2 = hud_point(x + w, y + h, 1.0, 1.0, id, color)
+    let^ c3 = hud_point(x, y + h, 0.0, 1.0, id, color)
+    out.push(c0) out.push(c1) out.push(c2)
+    out.push(c0) out.push(c2) out.push(c3)
+}
+let^ hud_picture = p^ out:ref^ grow^ HudVertex[], x:f32^, y:f32^, id:i64^ {
+    hud_quad(out, x, y, f32^(pictures[id].w), f32^(pictures[id].h), id, WHITE)
+}
+let^ text_width = f^ words:u8^[:] -> f32^ {
+    var^ width:f32^ = 0.0
+    for^ i from^ 0 to^ words.len - 1 {
+        let^ c = i64^(words[i])
+        width += if^ c <= 32 or^ c >= 96: f32^(4.0) el^: f32^(pictures[font[c]].w) + 1.0;
+    }
+    return^ width
+}
+let^ text = p^ out:ref^ grow^ HudVertex[], x:f32^, y:f32^, words:u8^[:], color:Color {
+    var^ cursor = x
+    for^ i from^ 0 to^ words.len - 1 {
+        let^ c = i64^(words[i])
+        if^ c <= 32 or^ c >= 96 {
+            cursor += 4.0
+            continue^
+        }
+        let^ id = font[c]
+        let^ w = f32^(pictures[id].w)
+        let^ h = f32^(pictures[id].h)
+        hud_quad(out, cursor + 1.0, y + 1.0, w, h, id, Color{r=0.0, g=0.0, b=0.0, a=color.a})
+        hud_quad(out, cursor, y, w, h, id, color)
+        cursor += w + 1.0
+    }
+}
+let^ centered = p^ out:ref^ grow^ HudVertex[], width:f32^, y:f32^, words:u8^[:] {
+    text(out, (width - text_width(words)) * 0.5, y, words, WHITE)
+}
+let^ map_line = p^ out:ref^ grow^ HudVertex[], a:F2, b:F2, color:Color {
+    let^ d = b - a
+    let^ normal = F2{x=-d.y, y=d.x} * (0.45 / fmax(0.1, length2(d)))
+    let^ c0 = hud_point(a.x - normal.x, a.y - normal.y, 0.0, 0.0, 0, color)
+    let^ c1 = hud_point(b.x - normal.x, b.y - normal.y, 0.0, 0.0, 0, color)
+    let^ c2 = hud_point(b.x + normal.x, b.y + normal.y, 0.0, 0.0, 0, color)
+    let^ c3 = hud_point(a.x + normal.x, a.y + normal.y, 0.0, 0.0, 0, color)
+    out.push(c0) out.push(c1) out.push(c2)
+    out.push(c0) out.push(c2) out.push(c3)
+}
+let^ automap = p^ out:ref^ grow^ HudVertex[], screen:F2 {
+    hud_quad(out, 0.0, 0.0, screen.x, screen.y - 34.0, 0, Color{r=0.015, g=0.025, b=0.025, a=0.94})
+    let^ center = F2{x=screen.x * 0.5, y=(screen.y - 34.0) * 0.5}
+    for^ i from^ 0 to^ lines.len - 1 {
+        let^ line = lines[i]
+        let^ a = center + F2{x=(line.a.x - player.pos.x) * 0.09, y=(player.pos.y - line.a.y) * 0.09}
+        let^ b = center + F2{x=(line.b.x - player.pos.x) * 0.09, y=(player.pos.y - line.b.y) * 0.09}
+        let^ color = if^ line.special = 26: Color{r=0.2, g=0.45, b=1.0, a=1.0}
+                     el^ line.special != 0: Color{r=1.0, g=0.8, b=0.25, a=1.0}
+                     el^ line.back < 0: Color{r=0.8, g=0.23, b=0.12, a=1.0}
+                     el^: Color{r=0.3, g=0.33, b=0.3, a=0.6};
+        map_line(out, a, b, color)
+    }
+    let^ forward = F2{x=math.cos(player.yaw), y=-math.sin(player.yaw)}
+    let^ right = F2{x=-forward.y, y=forward.x}
+    let^ nose = center + forward * 6.0
+    map_line(out, center - right * 4.0, nose, WHITE)
+    map_line(out, center + right * 4.0, nose, WHITE)
+}
+let^ draw_weapon = p^ out:ref^ grow^ HudVertex[], center:f32^, bar_y:f32^ {
+    let^ prefix = for^ player.weapon: when^ 1: "PUNG" when^ 2: "PISG" when^ 3: "SHTG" other^: "CHGG";
+    let^ frame:i64^ = if^ player.weapon = 3 and^ player.cooldown > 0.12: imin(3, 1 + i64^((0.85 - player.cooldown) * 4.0))
+                 el^ player.cooldown > 0.12 and^ player.weapon != 4: 1 el^: 0;
+    let^ id = frame_picture(prefix, frame)
+    let^ bob = math.sin(player.bob) * 1.4
+    hud_picture(out, center - 160.0 - f32^(pictures[id].left) + bob,
+        bar_y - 168.0 - f32^(pictures[id].top) + math.abs(bob), id)
+    if^ player.flash > 0.0 and^ player.weapon != 1 {
+        let^ flash = frame_picture(if^ player.weapon = 3: "SHTF" el^ player.weapon = 4: "CHGF" el^: "PISF";, 0)
+        hud_picture(out, center - 160.0 - f32^(pictures[flash].left) + bob,
+            bar_y - 168.0 - f32^(pictures[flash].top) + math.abs(bob), flash)
+    }
+    let^ cross = Color{r=0.9, g=0.9, b=0.7, a=0.7}
+    hud_quad(out, center - 2.0, bar_y * 0.5, 5.0, 1.0, 0, cross)
+    hud_quad(out, center, bar_y * 0.5 - 2.0, 1.0, 5.0, 0, cross)
+}
+let^ draw_status = p^ out:ref^ grow^ HudVertex[], screen:F2, bar_y:f32^ {
+    let^ center = screen.x * 0.5
+    hud_quad(out, 0.0, bar_y, screen.x, 34.0, 0, Color{r=0.12, g=0.12, b=0.13, a=1.0})
+    var^ face = numbered("STFST", imin(4, imax(0, (100 - player.health) / 20)), 1)
+    face.push(48)
+    let^ face_id = if^ player.health <= 0: find_picture("STFDEAD0".bytes, 0) el^: find_picture(face[..], 0);
+    hud_picture(out, center - 12.0, bar_y + 3.0, face_id)
+    let^ health = $"HEALTH {player.health}%"
+    text(out, 7.0, bar_y + 4.0, health.text().bytes, WHITE)
+    let^ armor = $"ARMOR  {player.armor}%"
+    text(out, 7.0, bar_y + 18.0, armor.text().bytes, WHITE)
+    let^ ammo = if^ player.weapon = 1: $"FISTS" el^ player.weapon = 3: $"SHELLS {player.shells}" el^: $"AMMO {player.bullets}";
+    text(out, center + 28.0, bar_y + 4.0, ammo.text().bytes, WHITE)
+    let^ tally = $"KILLS {state.kills}/{state.total_monsters}"
+    text(out, center + 28.0, bar_y + 18.0, tally.text().bytes, WHITE)
+    if^ player.blue_key {
+        let^ key = find_picture("BKEYA0".bytes, 0)
+        hud_quad(out, screen.x - 14.0, bar_y + 3.0, f32^(pictures[key].w) * 0.7, f32^(pictures[key].h) * 0.7, key, WHITE)
+    }
+    if^ state.message_time > 0.0 { centered(out, screen.x, 7.0, message[..]) }
+}
+let^ draw_overlays = p^ out:ref^ grow^ HudVertex[], screen:F2, bar_y:f32^, paused:bool^, help:bool^ {
+    if^ help {
+        hud_quad(out, 4.0, 22.0, 266.0, 56.0, 0, Color{r=0.0, g=0.0, b=0.0, a=0.7})
+        text(out, 8.0, 26.0, "WASD: WALK  SHIFT: RUN  MOUSE: TURN".bytes, WHITE)
+        text(out, 8.0, 38.0, "E/SPACE: USE  CLICK/CTRL: FIRE".bytes, WHITE)
+        text(out, 8.0, 50.0, "1-4: WEAPON  TAB: MAP  H: HELP".bytes, WHITE)
+        text(out, 8.0, 62.0, "ESC: PAUSE  F12: SCREENSHOT".bytes, WHITE)
+    }
+    if^ paused or^ player.health <= 0 or^ state.won {
+        hud_quad(out, 0.0, bar_y * 0.5 - 22.0, screen.x, 48.0, 0, Color{r=0.0, g=0.0, b=0.0, a=0.75})
+        centered(out, screen.x, bar_y * 0.5 - 15.0,
+            (if^ state.won: "LEVEL COMPLETE" el^ player.health <= 0: "YOU DIED" el^: "PAUSED";).bytes)
+        centered(out, screen.x, bar_y * 0.5,
+            (if^ state.won or^ player.health <= 0: "R: RESTART" el^: "ESC OR CLICK TO RESUME";).bytes)
+        if^ state.won {
+            let^ found = $"SECRETS {state.secrets}/{state.total_secrets}"
+            centered(out, screen.x, bar_y * 0.5 + 12.0, found.text().bytes)
+        }
+    }
+}
+let^ draw_hud = p^ out:ref^ grow^ HudVertex[], screen:F2, paused:bool^, help:bool^, map:bool^ {
+    let^ bar_y = screen.y - 34.0
+    if^ player.health > 0 and^ !map { draw_weapon(out, screen.x * 0.5, bar_y) }
+    if^ map { automap(out, screen) }
+    if^ player.hurt > 0.0 {
+        hud_quad(out, 0.0, 0.0, screen.x, bar_y, 0, Color{r=0.7, g=0.0, b=0.0, a=player.hurt * 0.7})
+    elif^ player.bonus > 0.0:
+        hud_quad(out, 0.0, 0.0, screen.x, bar_y, 0, Color{r=1.0, g=0.8, b=0.2, a=player.bonus * 0.6})
+    }
+    draw_status(out, screen, bar_y)
+    draw_overlays(out, screen, bar_y, paused, help)
+}
+
 # --- matrices for SDL_GPU clip space (y up, depth 0 to 1), column-major --------
 
 def^ M4 {
@@ -1013,10 +1554,37 @@ let^ world_fragment = "
     }
     "
 
+let^ hud_vertex = "
+    layout(location = 0) in vec2 a_pos;
+    layout(location = 1) in vec2 a_uv;
+    layout(location = 2) in vec4 a_rectangle;
+    layout(location = 3) in vec4 a_color;
+    layout(set = 1, binding = 0) uniform Canvas { vec4 screen; };
+    layout(location = 0) out vec2 uv;
+    layout(location = 1) flat out vec4 rectangle;
+    layout(location = 2) out vec4 color;
+    void main() {
+        uv = a_uv;
+        rectangle = a_rectangle;
+        color = a_color;
+        gl_Position = vec4(a_pos.x / screen.x * 2.0 - 1.0, 1.0 - a_pos.y / screen.y * 2.0, 0.0, 1.0);
+    }
+    "
+let^ hud_fragment = "
+    layout(location = 0) in vec2 uv;
+    layout(location = 1) flat in vec4 rectangle;
+    layout(location = 2) in vec4 color;
+    layout(set = 2, binding = 0) uniform sampler2D atlas;
+    layout(location = 0) out vec4 result;
+    void main() {
+        vec2 texel = rectangle.xy + clamp(floor(uv * rectangle.zw), vec2(0.0), rectangle.zw - 1.0) + 0.5;
+        result = texture(atlas, texel / vec2(2048.0, 4096.0)) * color;
+    }
+    "
+
 # --- entry point -----------------------------------------------------------------------
 
 var^ frames:i64^ = -1
-var^ walking = false^
 var^ path:string^ = "freedoom1-e1m1.wad"
 var^ argument:i64^ = 0
 repeat^ while^ argument < ....len {
@@ -1024,13 +1592,15 @@ repeat^ while^ argument < ....len {
     if^ option = "--frames" and^ argument + 1 < ....len {
         frames := i64^.parse(...[argument + 1]) catch^ -1
         argument += 1
+    elif^ option = "--silent":
+        state.quiet := true^
     elif^ option = "--walk":
-        walking := true^
+        state.walking := true^
     elif^ option = "--wad" and^ argument + 1 < ....len:
         path := ...[argument + 1]
         argument += 1
     else^:
-        panic^ "mini doom: usage: mini_doom [--wad PATH] [--frames N] [--walk]"
+        panic^ "mini doom: usage: mini_doom [--wad PATH] [--frames N] [--walk] [--silent]"
     }
     argument += 1
 }
@@ -1050,22 +1620,25 @@ let^ atlas = gfx.texture2d(ATLAS_W, ATLAS_H)
 let^ uploaded = gfx.update(atlas, atlas_pixels[..])
 let^ sampler = gfx.sampler(gfx.NEAREST, gfx.CLAMP)
 let^ world_pipeline = gfx.pipeline(world_vertex, world_fragment, gfx.CULL_NONE, gfx.BLEND_NONE, true^, true^)
-if^ atlas.id = 0 or^ !uploaded or^ sampler.id = 0 or^ world_pipeline.id = 0 {
+let^ hud_pipeline = gfx.pipeline(hud_vertex, hud_fragment, gfx.CULL_NONE, gfx.BLEND_ALPHA, false^, false^)
+load_sounds(state.quiet or^ frames > 0)
+if^ atlas.id = 0 or^ !uploaded or^ sampler.id = 0 or^ world_pipeline.id = 0 or^ hud_pipeline.id = 0 {
     gfx.error(ref^ why)
     print^("mini doom: gfx setup failed: ", string^(why[..]) catch^ "?")
     gfx.close()
     return^
 }
 var^ world_buffer = gfx.Buffer{}
-var^ drawn:i64^ = 0
-if^ walking {
+var^ hud_buffer = gfx.Buffer{}
+var^ help = false^
+var^ map = false^
+if^ state.walking {
     # A scripted walk for testing: focus and the W key, held throughout.
     gfx.inject_focus(true^)
     gfx.inject_key("W", true^)
     gfx.frame()
 }
 var^ paused = !gfx.focused()
-var^ accumulator:f32^ = 0.0
 if^ !paused and^ frames < 0 and^ !gfx.set_mouse_relative(true^) {
     say("MOUSE CAPTURE FAILED - LEFT/RIGHT TURNS")
 }
@@ -1073,7 +1646,7 @@ var^ camera:f32^[20] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0
     0.0, 0.0, 0.0, 0.0]
 # Input and the fixed-step simulation for one frame.
 let^ step_game = p^ {
-    let^ was_playing = !paused and^ player.health > 0 and^ !won
+    let^ was_playing = !paused and^ player.health > 0 and^ !state.won
     if^ !gfx.focused() or^ gfx.focus_lost() {
         paused := true^
     else^:
@@ -1082,15 +1655,32 @@ let^ step_game = p^ {
         elif^ paused and^ gfx.mouse_pressed(gfx.MOUSE_LEFT):
             paused := false^
         }
-        if^ gfx.key_pressed("R") and^ (player.health <= 0 or^ won) {
+        if^ gfx.key_pressed("H") { help := !help }
+        if^ gfx.key_pressed("Tab") { map := !map }
+        if^ gfx.key_pressed("R") and^ (player.health <= 0 or^ state.won) {
             reset_game()
             paused := false^
         }
     }
-    let^ playing = !paused and^ player.health > 0 and^ !won
-    if^ playing != was_playing { gfx.set_mouse_relative(playing and^ frames < 0) }
+    let^ playing = !paused and^ player.health > 0 and^ !state.won
+    if^ playing != was_playing {
+        gfx.set_mouse_relative(playing and^ frames < 0)
+        state.wait_for_fire := true^
+    }
+    let^ fire_down = gfx.mouse_down(gfx.MOUSE_LEFT) or^ gfx.key_down("Left Ctrl") or^ gfx.key_down("Right Ctrl")
+    if^ !fire_down { state.wait_for_fire := false^ }
     let^ dt = if^ frames > 0: STEP el^: fmin(f32^(gfx.delta_time()), 0.1);
     if^ playing and^ was_playing {
+        # Keep a short press until a tick consumes it: a press and release can
+        # both arrive between rendered frames.
+        if^ !state.wait_for_fire and^ (gfx.mouse_pressed(gfx.MOUSE_LEFT) or^ gfx.key_pressed("Left Ctrl") or^
+            gfx.key_pressed("Right Ctrl")) {
+            state.fire_pending := true^
+        }
+        if^ gfx.key_pressed("1") { player.weapon := 1 }
+        if^ gfx.key_pressed("2") { player.weapon := 2 }
+        if^ gfx.key_pressed("3") and^ player.shotgun { player.weapon := 3 }
+        if^ gfx.key_pressed("4") and^ player.chaingun { player.weapon := 4 }
         if^ gfx.mouse_relative() { player.yaw -= gfx.mouse_dx() * 0.003 }
         if^ gfx.key_down("Left") { player.yaw += dt * 2.2 }
         if^ gfx.key_down("Right") { player.yaw -= dt * 2.2 }
@@ -1102,21 +1692,25 @@ let^ step_game = p^ {
         if^ gfx.key_down("D") { direction.x += 1.0 }
         if^ gfx.key_down("A") { direction.x -= 1.0 }
         let^ running = gfx.key_down("Left Shift") or^ gfx.key_down("Right Shift")
-        accumulator += dt
-        repeat^ while^ accumulator >= STEP and^ !won and^ player.health > 0 {
-            tick(direction, running)
-            accumulator -= STEP
+        state.accumulator += dt
+        repeat^ while^ state.accumulator >= STEP and^ !state.won and^ player.health > 0 {
+            tick(direction, running, (fire_down or^ state.fire_pending) and^ !state.wait_for_fire)
+            state.fire_pending := false^
+            state.accumulator -= STEP
         }
     else^:
-        accumulator := 0.0
+        state.accumulator := 0.0
+        state.fire_pending := false^
     }
-    if^ (player.health <= 0 or^ won) and^ gfx.mouse_relative() { gfx.set_mouse_relative(false^) }
+    if^ (player.health <= 0 or^ state.won) and^ gfx.mouse_relative() { gfx.set_mouse_relative(false^) }
 }
 
-# The world mesh, rebuilt every frame, drawn from the player's eye.
+# The world mesh, rebuilt every frame, state.drawn from the player's eye; then the
+# HUD in a 320 x 200 canvas scaled to the window.
 let^ draw_world = p^ width:f32^, height:f32^ {
     var^ mesh:grow^ Vertex[] = []
     world_mesh(ref^ mesh)
+    sprite_mesh(ref^ mesh)
     if^ world_buffer.id = 0 or^ gfx.size(world_buffer) < mesh.bytes.len {
         if^ world_buffer.id != 0 { gfx.release(world_buffer) }
         world_buffer := gfx.buffer_sized(gfx.BUFFER_VERTEX, imax(4096, mesh.bytes.len * 2), mesh.bytes)
@@ -1127,19 +1721,47 @@ let^ draw_world = p^ width:f32^, height:f32^ {
     let^ ey = player.z + (if^ player.health <= 0: f32^(12.0) el^: 41.0 + math.sin(player.bob * 2.0) * 0.6;)
     let^ ez = -player.pos.y
     let^ view = look_along(ex, ey, ez, math.cos(player.yaw), -math.sin(player.yaw))
-    let^ view_proj = multiply(perspective(1.1, width / height, 1.0, 12000.0), view)
+    let^ scale = fmin(width / 320.0, height / 200.0)
+    let^ screen = F2{x=width / scale, y=height / scale}
+    let^ view_height = height * (screen.y - 34.0) / screen.y
+    let^ view_proj = multiply(perspective(1.1, width / view_height, 1.0, 12000.0), view)
     for^ i from^ 0 to^ 15 { camera[i] := view_proj.m[i] }
     camera[16] := ex
     camera[17] := ey
     camera[18] := ez
+    let^ hud_count = upload_hud(screen)
     if^ gfx.begin_screen(0.16, 0.19, 0.22, 1.0, true^) {
+        gfx.viewport(0.0, 0.0, width, view_height)
         gfx.bind(world_pipeline)
         gfx.bind_texture(gfx.FRAGMENT, 0, atlas, sampler)
         gfx.bind_vertex_buffer(world_buffer)
         gfx.push_uniforms(gfx.VERTEX, 0, camera.bytes)
         gfx.draw(mesh.len)
+        draw_hud_pass(width, height, screen, hud_count)
         gfx.end_pass()
     }
+}
+
+# Builds and uploads the HUD before the pass; buffers cannot change inside one.
+let^ upload_hud = p^ screen:F2 -> i64^ {
+    var^ hud:grow^ HudVertex[] = []
+    draw_hud(ref^ hud, screen, paused, help, map)
+    if^ hud_buffer.id = 0 or^ gfx.size(hud_buffer) < hud.bytes.len {
+        if^ hud_buffer.id != 0 { gfx.release(hud_buffer) }
+        hud_buffer := gfx.buffer_sized(gfx.BUFFER_VERTEX, imax(4096, hud.bytes.len * 2), hud.bytes)
+    else^:
+        gfx.update(hud_buffer, hud.bytes)
+    }
+    return^ hud.len
+}
+let^ draw_hud_pass = p^ width:f32^, height:f32^, screen:F2, count:i64^ {
+    let^ canvas:f32^[4] = [screen.x, screen.y, 0.0, 0.0]
+    gfx.viewport(0.0, 0.0, width, height)
+    gfx.bind(hud_pipeline)
+    gfx.bind_texture(gfx.FRAGMENT, 0, atlas, sampler)
+    gfx.bind_vertex_buffer(hud_buffer)
+    gfx.push_uniforms(gfx.VERTEX, 0, canvas.bytes)
+    gfx.draw(count)
 }
 
 repeat^ while^ gfx.frame() {
@@ -1148,10 +1770,14 @@ repeat^ while^ gfx.frame() {
     if^ width <= 0.0 or^ height <= 0.0 { continue^ }
     step_game()
     draw_world(width, height)
-    drawn += 1
-    if^ drawn = frames { break^ }
+    if^ gfx.key_pressed("F12") {
+        say(if^ gfx.screenshot("mini_doom.png"): "SAVED MINI_DOOM.PNG" el^: "SCREENSHOT FAILED";)
+    }
+    state.drawn += 1
+    if^ state.drawn = frames { break^ }
 }
 if^ frames > 0 {
-    print^("drew ", drawn, " frames; saved mini_doom.png: ", gfx.screenshot("mini_doom.png"))
+    print^("drew ", state.drawn, " frames; saved mini_doom.png: ", gfx.screenshot("mini_doom.png"))
 }
+if^ state.sound_ready { audio.close() }
 gfx.close()

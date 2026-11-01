@@ -16,6 +16,7 @@ Goose の `embed_shader` が使うシェーダコンパイラ（cute_spirv）を
 | `src/shaderc/`, `third_party/cute_spirv/` | GLSL 450 を SPIR-V・MSL・HLSL へ。Goose のコンパイラのもの |
 | `third_party/SDL` | SDL3（サブモジュール、shallow） |
 | `test/` | `clear.rh`（画面クリア）、`triangle.rh`（シェーダと描画）、`buffer.rh`（頂点バッファ）、`texture.rh`（テクスチャ・サンプラー・ユニフォーム）、`input.rh`（注入した入力の検査）、`audio.rh`（音の再生開始） |
+| `samples/mini_doom.rh` | Goose の `31_mini_doom.goose` の移植。Freedoom E1M1 の WAD を読み、壁・床・スプライト・HUD・音まで動く小さな Doom 風ゲーム |
 | `scripts/run.ps1` | ネイティブ層をビルドし、R^ のプログラムをリンクして実行する（Windows） |
 
 ## 試す
@@ -27,6 +28,16 @@ git submodule update --init
 ```
 
 `rhat` は `../rhat/build/Release/rhat.exe` を使います（`-Rhat` で変更）。
+
+mini doom は WAD のパスを渡して実行します（WAD は Goose の `samples/data/freedoom1-e1m1.wad`）。
+
+```powershell
+.\scriptsun.ps1 samples\mini_doom.rh -Arguments '--wad','..\goose\samples\datareedoom1-e1m1.wad'
+```
+
+WASD で移動、Shift で走る、マウスか左右キーで旋回、E/Space で使用、クリックか Ctrl で射撃、1〜4 で武器、
+Tab でマップ、H でヘルプ、Escape で一時停止、F12 でスクリーンショット。`--frames N` で N フレーム描いて
+`mini_doom.png` を保存して終わり、`--walk` は W を押し続けます（試験用）。
 
 ## 状況
 
