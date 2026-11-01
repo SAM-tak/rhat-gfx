@@ -2,7 +2,11 @@
 # samples/31_mini_doom.goose. The WAD supplies the map, palette, textures,
 # sprites, font and sound effects. This is not a source port.
 #
-#   mini_doom --wad path/to/freedoom1-e1m1.wad [--frames N]
+#   mini_doom --wad path/to/freedoom1-e1m1.wad [--frames N] [--walk]
+#
+# WASD walks, Shift runs, the mouse or Left/Right turns, E or Space uses doors
+# and switches. Escape pauses. R restarts after death or finishing. --walk
+# holds W, for a scripted test with --frames.
 #
 # Read downwards: bytes -> pictures -> map -> rendering.
 
@@ -447,23 +451,369 @@ let^ load_tree = p^ {
     }
 }
 
-# --- the player ------------------------------------------------------------------
+# --- things, player and game state ---------------------------------------------------
 
-def^ Player { self^{ pos:F2 = F2{}, z:f32^ = 0.0, yaw:f32^ = 0.0 } }
+let^ STEP:f32^ = 0.016666667
+let^ TAU:f32^ = 6.2831853
+let^ PLAYER_RADIUS:f32^ = 16.0
+let^ PLAYER_HEIGHT:f32^ = 56.0
+def^ Player {
+    self^{ pos:F2 = F2{}, z:f32^ = 0.0, falling:f32^ = 0.0, yaw:f32^ = 0.0,
+           health:i64^ = 100, armor:i64^ = 0, bullets:i64^ = 50, shells:i64^ = 0,
+           weapon:i64^ = 2, shotgun:bool^ = false^, chaingun:bool^ = false^, blue_key:bool^ = false^,
+           cooldown:f32^ = 0.0, flash:f32^ = 0.0, hurt:f32^ = 0.0, bonus:f32^ = 0.0, bob:f32^ = 0.0 }
+}
+def^ Actor {
+    self^{ pos:F2 = F2{}, z:f32^ = 0.0, kind:i64^ = 0, picture:i64^ = 0, radius:f32^ = 16.0,
+           health:i64^ = 0, alive:bool^ = true^, solid:bool^ = false^, awake:bool^ = false^,
+           timer:f32^ = 0.0, pain:f32^ = 0.0, death:f32^ = 0.0, attacking:f32^ = 0.0 }
+}
 var^ player = Player{}
+var^ actors:Actor[..512] = []
+var^ game_time:f32^ = 0.0
+var^ damage_clock:f32^ = 0.0
+var^ secrets:i64^ = 0
+var^ total_secrets:i64^ = 0
+var^ won = false^
+var^ message:u8^[..160] = []
+var^ message_time:f32^ = 0.0
 
-let^ place_player = p^ {
+let^ say = p^ text:string^ {
+    message.clear()
+    message.append(text.bytes[0 .. imin(text.bytes.len, 160)])
+    message_time := 3.5
+}
+# Sounds come with the audio in the next part.
+let^ sound = p^ id:i64^, pos:F2 { }
+
+let^ reset_game = p^ {
+    actors.clear()
+    secrets := 0
+    total_secrets := 0
+    game_time := 0.0
+    damage_clock := 0.0
+    won := false^
+    for^ i from^ 0 to^ lines.len - 1 { lines[i].activated := false^ }
+    for^ i from^ 0 to^ sectors.len - 1 {
+        let^ s = ref^ sectors[i]
+        s.floor := s.start_floor
+        s.ceiling := s.start_ceiling
+        s.motion := 0
+        s.wait := 0.0
+        s.secret_found := false^
+        if^ s.special = 9 { total_secrets += 1 }
+    }
+    player := Player{}
     let^ things = records("THINGS", 10)
+    var^ have_start = false^
     for^ i from^ 0 to^ things.len / 10 - 1 {
         let^ at = i * 10
         if^ u16le(things, at + 6) = 1 {
             player.pos := point(things, at)
             player.z := sectors[sector_at(player.pos)].floor
-            player.yaw := f32^(i16le(things, at + 4)) * 3.14159265 / 180.0
-            return^
+            player.yaw := f32^(i16le(things, at + 4)) * TAU / 360.0
+            have_start := true^
         }
     }
-    panic^ "mini doom: missing player-one start"
+    require(have_start, "mini doom: missing player-one start")
+    say("FIND THE BLUE KEY AND THE EXIT.")
+}
+
+# --- collision, sight and walking ----------------------------------------------------
+
+let^ nearest_on_line = f^ p:F2, a:F2, b:F2 -> F2 {
+    let^ d = b - a
+    let^ t = fclamp(dot2(p - a, d) / fmax(dot2(d, d), 0.001), 0.0, 1.0)
+    return^ a + d * t
+}
+# The distance along a finite ray to where it crosses ab, or -1 for none.
+let^ intersect_ray = f^ pos:F2, direction:F2, a:F2, b:F2 -> f32^ {
+    let^ edge = b - a
+    let^ denominator = cross2(direction, edge)
+    if^ math.abs(denominator) < 0.00001 { return^ -1.0 }
+    let^ t = cross2(a - pos, edge) / denominator
+    let^ u = cross2(a - pos, direction) / denominator
+    return^ if^ t > 0.001 and^ u >= 0.0 and^ u <= 1.0: t el^: f32^(-1.0);
+}
+let^ wall_distance = f^ pos:F2, z:f32^, direction:F2, slope:f32^, limit:f32^ -> f32^ {
+    var^ nearest = limit
+    for^ i from^ 0 to^ lines.len - 1 {
+        let^ line = lines[i]
+        let^ t = intersect_ray(pos, direction, line.a, line.b)
+        if^ t < 0.0 or^ t >= nearest { continue^ }
+        let^ back = back_sector(line)
+        if^ back < 0 {
+            nearest := t
+            continue^
+        }
+        let^ a = sectors[front_sector(line)]
+        let^ b = sectors[back]
+        let^ height = z + t * slope
+        if^ height <= fmax(a.floor, b.floor) or^ height >= fmin(a.ceiling, b.ceiling) { nearest := t }
+    }
+    return^ nearest
+}
+let^ visible = f^ a:F2, az:f32^, b:F2, bz:f32^ -> bool^ {
+    let^ dist = distance2(a, b)
+    if^ dist < 0.1 { return^ true^ }
+    return^ wall_distance(a, az, (b - a) * (1.0 / dist), (bz - az) / dist, dist) >= dist - 0.1
+}
+let^ can_stand = f^ pos:F2, z:f32^, radius:f32^, height:f32^, ignore:i64^, enemy:bool^ -> bool^ {
+    let^ here = sectors[sector_at(pos)]
+    if^ here.floor > z + 24.0 or^ here.ceiling < fmax(z, here.floor) + height { return^ false^ }
+    for^ i from^ 0 to^ lines.len - 1 {
+        let^ line = lines[i]
+        # A tiny tolerance lets a circle slide along an exactly tangent wall.
+        if^ distance2(pos, nearest_on_line(pos, line.a, line.b)) >= radius - 0.01 { continue^ }
+        let^ back = back_sector(line)
+        if^ back < 0 or^ (line.flags bitand^ 1) != 0 or^ (enemy and^ (line.flags bitand^ 2) != 0) {
+            return^ false^
+        }
+        let^ a = sectors[front_sector(line)]
+        let^ b = sectors[back]
+        let^ bottom = fmax(a.floor, b.floor)
+        let^ top = fmin(a.ceiling, b.ceiling)
+        if^ bottom > z + 24.0 or^ top - fmax(z, bottom) < height { return^ false^ }
+    }
+    for^ i from^ 0 to^ actors.len - 1 {
+        let^ a = actors[i]
+        if^ i = ignore or^ !a.alive or^ !a.solid { continue^ }
+        if^ math.abs(a.z - z) < height and^ distance2(pos, a.pos) < radius + a.radius { return^ false^ }
+    }
+    if^ enemy and^ player.health > 0 and^ math.abs(player.z - z) < height and^
+        distance2(pos, player.pos) < radius + PLAYER_RADIUS {
+        return^ false^
+    }
+    return^ true^
+}
+let^ slide = f^ pos:F2, z:f32^, delta:F2, radius:f32^, ignore:i64^, enemy:bool^ -> F2 {
+    let^ whole = pos + delta
+    if^ can_stand(whole, z, radius, PLAYER_HEIGHT, ignore, enemy) { return^ whole }
+    # The axis fallback is small and forgiving; substeps prevent tunneling.
+    var^ next = F2{x=pos.x + delta.x, y=pos.y}
+    if^ !can_stand(next, z, radius, PLAYER_HEIGHT, ignore, enemy) { next := pos }
+    let^ y = F2{x=next.x, y=pos.y + delta.y}
+    if^ can_stand(y, z, radius, PLAYER_HEIGHT, ignore, enemy) { next := y }
+    return^ next
+}
+let^ walk = p^ direction:F2, running:bool^ {
+    let^ forward = F2{x=math.cos(player.yaw), y=math.sin(player.yaw)}
+    let^ right = F2{x=forward.y, y=-forward.x}
+    var^ movement = forward * direction.y + right * direction.x
+    let^ amount = length2(movement)
+    if^ amount > 1.0 { movement := movement * (1.0 / amount) }
+    movement := movement * ((if^ running: f32^(260.0) el^: 170.0;) * STEP)
+    let^ old = player.pos
+    let^ steps = imax(1, i64^(math.ceil(length2(movement) / 4.0)))
+    for^ i from^ 1 to^ steps {
+        player.pos := slide(player.pos, player.z, movement * (1.0 / f32^(steps)), PLAYER_RADIUS, -1, false^)
+        let^ floor_z = sectors[sector_at(player.pos)].floor
+        if^ floor_z > player.z {
+            player.z := floor_z
+            player.falling := 0.0
+        }
+    }
+    let^ ground = sectors[sector_at(player.pos)].floor
+    if^ player.z > ground {
+        player.falling -= 700.0 * STEP
+        player.z := fmax(ground, player.z + player.falling * STEP)
+    else^:
+        player.z := ground
+        player.falling := 0.0
+    }
+    player.bob += distance2(old, player.pos) * 0.055
+    if^ distance2(old, player.pos) > 0.001 {
+        for^ i from^ 0 to^ lines.len - 1 {
+            let^ special = lines[i].special
+            if^ special != 2 and^ special != 88 { continue^ }
+            let^ t = intersect_ray(old, player.pos - old, lines[i].a, lines[i].b)
+            if^ t > 0.0 and^ t <= 1.0 { activate_line(i, true^) }
+        }
+    }
+}
+
+# --- moving sectors and use triggers ---------------------------------------------------
+
+let^ neighbor_limits = f^ sector:i64^ -> (f32^, f32^) {
+    var^ low = sectors[sector].start_floor
+    var^ top:f32^ = 32768.0
+    for^ i from^ 0 to^ lines.len - 1 {
+        let^ a = front_sector(lines[i])
+        let^ b = back_sector(lines[i])
+        let^ neighbor = if^ a = sector: b el^ b = sector: a el^: -1;
+        if^ neighbor >= 0 and^ neighbor != sector {
+            low := fmin(low, sectors[neighbor].floor)
+            top := fmin(top, sectors[neighbor].ceiling)
+        }
+    }
+    return^ low, top
+}
+let^ open_door = p^ index:i64^, fast:bool^, stay:bool^ {
+    let^ _^, top = neighbor_limits(index)
+    if^ top = 32768.0 { return^ }
+    let^ s = ref^ sectors[index]
+    s.target := top - 4.0
+    s.motion := if^ stay: 4 el^: 1;   # 1 opening, 2 waiting, 3 closing, 4 opening to stay
+    s.speed := if^ fast: f32^(280.0) el^: 90.0;
+    s.wait := 0.0
+}
+let^ activate_line = p^ index:i64^, crossing:bool^ {
+    let^ line = lines[index]
+    let^ special = line.special
+    if^ crossing != (special = 2 or^ special = 88) { return^ }
+    if^ special = 11 {
+        lines[index].activated := true^
+        won := true^
+        sound(8, player.pos)
+        say("LEVEL COMPLETE!  R: PLAY AGAIN")
+    elif^ special = 1 or^ special = 26 or^ special = 117:
+        if^ special = 26 and^ !player.blue_key {
+            say("YOU NEED THE BLUE KEY")
+            return^
+        }
+        let^ back = back_sector(line)
+        if^ back >= 0 {
+            open_door(back, special = 117, false^)
+            sound(6, player.pos)
+        }
+    elif^ special = 2 or^ special = 62 or^ special = 88 or^ special = 23:
+        lines[index].activated := true^
+        for^ i from^ 0 to^ sectors.len - 1 {
+            if^ line.tag = 0 or^ sectors[i].tag != line.tag { continue^ }
+            if^ special = 2 {
+                open_door(i, false^, true^)
+            elif^ sectors[i].motion = 0:
+                let^ low, _^ = neighbor_limits(i)
+                sectors[i].target := low
+                sectors[i].speed := 120.0
+                sectors[i].motion := if^ special = 23: 8 el^: 5;   # 5 lowering, 6 waiting, 7 rising
+            }
+        }
+        sound(if^ special = 2: 6 el^: 7;, player.pos)
+    }
+}
+let^ use = p^ {
+    let^ direction = F2{x=math.cos(player.yaw), y=math.sin(player.yaw)}
+    var^ nearest:f32^ = 80.0
+    var^ found:i64^ = -1
+    for^ i from^ 0 to^ lines.len - 1 {
+        let^ line = lines[i]
+        let^ t = intersect_ray(player.pos, direction, line.a, line.b)
+        if^ t < 0.0 or^ t >= nearest { continue^ }
+        let^ b = back_sector(line)
+        # Usable faces and closed passages stop the use ray, so a farther
+        # switch is never activated through a wall or a closed door.
+        let^ blocks = b < 0 or^ sectors[b].ceiling <= sectors[b].floor
+        let^ usable = line.special != 0 and^ line.special != 2 and^ line.special != 88 and^
+                     cross2(line.b - line.a, player.pos - line.a) <= 0.0
+        if^ blocks or^ usable {
+            nearest := t
+            found := if^ usable: i el^: -1;
+        }
+    }
+    if^ found >= 0 { activate_line(found, false^) }
+}
+let^ occupied = f^ index:i64^, ceiling:f32^ -> bool^ {
+    if^ sector_at(player.pos) = index and^ player.z + PLAYER_HEIGHT > ceiling { return^ true^ }
+    for^ i from^ 0 to^ actors.len - 1 {
+        let^ a = actors[i]
+        if^ a.alive and^ a.solid and^ sector_at(a.pos) = index and^ a.z + PLAYER_HEIGHT > ceiling {
+            return^ true^
+        }
+    }
+    return^ false^
+}
+let^ move_ceiling = p^ i:i64^, amount:f32^ {
+    let^ s = ref^ sectors[i]
+    if^ s.motion = 1 or^ s.motion = 4 {
+        s.ceiling := fmin(s.target, s.ceiling + amount)
+        if^ s.ceiling = s.target {
+            s.motion := if^ s.motion = 4: 0 el^: 2;
+            s.wait := 4.0
+        }
+    elif^ s.motion = 2:
+        s.wait -= STEP
+        if^ s.wait <= 0.0 { s.motion := 3 }
+    else^:
+        let^ next = fmax(s.floor, s.ceiling - amount)
+        if^ occupied(i, next) {
+            s.motion := 1
+        else^:
+            s.ceiling := next
+            if^ next = s.floor { s.motion := 0 }
+        }
+    }
+}
+let^ move_floor = p^ i:i64^, amount:f32^ {
+    let^ s = ref^ sectors[i]
+    let^ old_floor = s.floor
+    if^ s.motion = 5 or^ s.motion = 8 {
+        s.floor := fmax(s.target, s.floor - amount)
+        if^ s.floor = s.target {
+            s.motion := if^ s.motion = 8: 0 el^: 6;
+            s.wait := 3.0
+        }
+    elif^ s.motion = 6:
+        s.wait -= STEP
+        if^ s.wait <= 0.0 { s.motion := 7 }
+    elif^ s.motion = 7:
+        let^ next = fmin(s.start_floor, s.floor + amount)
+        # A lift reverses instead of crushing someone into a ceiling.
+        if^ occupied(i, s.ceiling - (next - s.floor)) {
+            s.motion := 5
+        else^:
+            s.floor := next
+            if^ next = s.start_floor { s.motion := 0 }
+        }
+    }
+    let^ new_floor = s.floor
+    if^ sector_at(player.pos) = i and^ math.abs(player.z - old_floor) < 0.1 { player.z := new_floor }
+    for^ k from^ 0 to^ actors.len - 1 {
+        let^ a = ref^ actors[k]
+        if^ a.alive and^ sector_at(a.pos) = i and^ math.abs(a.z - old_floor) < 0.1 { a.z := new_floor }
+    }
+}
+let^ move_sectors = p^ {
+    for^ i from^ 0 to^ sectors.len - 1 {
+        let^ motion = sectors[i].motion
+        let^ amount = sectors[i].speed * STEP
+        if^ motion >= 1 and^ motion <= 4 {
+            move_ceiling(i, amount)
+        elif^ motion >= 5:
+            move_floor(i, amount)
+        }
+    }
+}
+
+let^ hurt_player = p^ damage:i64^ {
+    if^ player.health <= 0 or^ won { return^ }
+    let^ absorbed = imin(player.armor, damage / 3)
+    player.armor -= absorbed
+    player.health := imax(0, player.health - damage + absorbed)
+    player.hurt := 0.35
+    sound(3, player.pos)
+    if^ player.health = 0 { say("YOU DIED.  R: TRY AGAIN") }
+}
+
+let^ tick = p^ direction:F2, running:bool^ {
+    game_time += STEP
+    message_time := fmax(0.0, message_time - STEP)
+    player.hurt := fmax(0.0, player.hurt - STEP)
+    move_sectors()
+    if^ player.health > 0 {
+        walk(direction, running)
+        let^ here = sector_at(player.pos)
+        if^ sectors[here].special = 9 and^ !sectors[here].secret_found {
+            sectors[here].secret_found := true^
+            secrets += 1
+            say("A SECRET IS REVEALED")
+        }
+        damage_clock += STEP
+        if^ damage_clock >= 1.0 {
+            damage_clock -= 1.0
+            if^ sectors[here].special = 7 and^ player.z <= sectors[here].floor + 1.0 { hurt_player(5) }
+        }
+    }
 }
 
 # --- meshes: world units become (x, height, -y) ----------------------------------
@@ -478,7 +828,40 @@ let^ vertex = f^ p:F2, height:f32^, u:f32^, v:f32^, picture:i64^, light:f32^ -> 
     return^ Vertex{x=p.x, y=height, z=-p.y, u=u, v=v, rx=f32^(r.x), ry=f32^(r.y), rw=f32^(r.w),
         rh=f32^(r.h), light=light}
 }
-let^ lighting = f^ sector:i64^ -> f32^ { return^ fmax(0.18, sectors[sector].light) }
+let^ lighting = f^ sector:i64^ -> f32^ {
+    let^ s = sectors[sector]
+    if^ s.special = 1 and^ (i64^(game_time * 9.0) + sector * 7) % 11 < 3 { return^ s.light * 0.4 }
+    if^ s.special = 12 and^ game_time - math.floor(game_time) < 0.15 { return^ s.light * 0.35 }
+    return^ fmax(0.18, s.light)
+}
+# Liquids cycle through their numbered frames.
+let^ animated_flat = f^ id:i64^ -> i64^ {
+    if^ id < 0 { return^ sky_picture }
+    let^ name = pictures[id].name
+    let^ frame = i64^(game_time * 4.0)
+    if^ name.len = 7 and^ same(name[0 .. 6], "NUKAGE".bytes) {
+        let^ next = numbered("NUKAGE", 1 + frame % 3, 1)
+        return^ find_picture(next[..], 2)
+    }
+    if^ name.len = 7 and^ same(name[0 .. 6], "FWATER".bytes) {
+        let^ next = numbered("FWATER", 1 + frame % 4, 1)
+        return^ find_picture(next[..], 2)
+    }
+    return^ id
+}
+# A used switch shows its SW2 texture.
+let^ switch_texture = f^ id:i64^, activated:bool^ -> i64^ {
+    if^ id < 0 or^ !activated { return^ id }
+    let^ name = pictures[id].name
+    if^ name.len >= 3 and^ same(name[0 .. 3], "SW1".bytes) {
+        var^ on:u8^[..8] = []
+        on.append("SW2".bytes)
+        on.append(name[3 ..])
+        let^ found = find_picture(on[..], 1)
+        if^ found >= 0 { return^ found }
+    }
+    return^ id
+}
 
 let^ add_wall = p^ out:ref^ grow^ Vertex[], a:F2, b:F2, bottom:f32^, top:f32^, texture:i64^,
                    offset:F2, anchor:f32^, light:f32^ {
@@ -503,7 +886,7 @@ let^ world_mesh = p^ out:ref^ grow^ Vertex[] {
         for^ plane from^ 0 to^ 1 {
             let^ height = if^ plane = 0: s.floor el^: s.ceiling;
             let^ original = if^ plane = 0: s.floor_pic el^: s.ceiling_pic;
-            let^ texture = if^ original < 0: sky_picture el^: original;
+            let^ texture = animated_flat(original);
             let^ shade = if^ original < 0: f32^(-1.0) el^: lighting(triangle.sector);
             out.push(vertex(triangle.a, height, triangle.a.x / 64.0, triangle.a.y / 64.0, texture, shade))
             out.push(vertex(triangle.b, height, triangle.b.x / 64.0, triangle.b.y / 64.0, texture, shade))
@@ -516,7 +899,10 @@ let^ world_mesh = p^ out:ref^ grow^ Vertex[] {
             let^ side_id = if^ face = 0: line.front el^: line.back;
             let^ other_id = if^ face = 0: line.back el^: line.front;
             if^ side_id < 0 { continue^ }
-            let^ side = sides[side_id]
+            var^ side = sides[side_id]
+            side.upper := switch_texture(side.upper, line.activated)
+            side.lower := switch_texture(side.lower, line.activated)
+            side.middle := switch_texture(side.middle, line.activated)
             let^ s = sectors[side.sector]
             let^ a = if^ face = 0: line.a el^: line.b;
             let^ b = if^ face = 0: line.b el^: line.a;
@@ -630,6 +1016,7 @@ let^ world_fragment = "
 # --- entry point -----------------------------------------------------------------------
 
 var^ frames:i64^ = -1
+var^ walking = false^
 var^ path:string^ = "freedoom1-e1m1.wad"
 var^ argument:i64^ = 0
 repeat^ while^ argument < ....len {
@@ -637,18 +1024,20 @@ repeat^ while^ argument < ....len {
     if^ option = "--frames" and^ argument + 1 < ....len {
         frames := i64^.parse(...[argument + 1]) catch^ -1
         argument += 1
+    elif^ option = "--walk":
+        walking := true^
     elif^ option = "--wad" and^ argument + 1 < ....len:
         path := ...[argument + 1]
         argument += 1
     else^:
-        panic^ "mini doom: usage: mini_doom [--wad PATH] [--frames N]"
+        panic^ "mini doom: usage: mini_doom [--wad PATH] [--frames N] [--walk]"
     }
     argument += 1
 }
 load_wad(path)
 load_pictures()
 load_map()
-place_player()
+reset_game()
 print^("lumps ", lumps.len, " pictures ", pictures.len, " sectors ", sectors.len, " lines ", lines.len,
     " floor triangles ", floor_triangles.len)
 
@@ -669,12 +1058,63 @@ if^ atlas.id = 0 or^ !uploaded or^ sampler.id = 0 or^ world_pipeline.id = 0 {
 }
 var^ world_buffer = gfx.Buffer{}
 var^ drawn:i64^ = 0
+if^ walking {
+    # A scripted walk for testing: focus and the W key, held throughout.
+    gfx.inject_focus(true^)
+    gfx.inject_key("W", true^)
+    gfx.frame()
+}
+var^ paused = !gfx.focused()
+var^ accumulator:f32^ = 0.0
+if^ !paused and^ frames < 0 and^ !gfx.set_mouse_relative(true^) {
+    say("MOUSE CAPTURE FAILED - LEFT/RIGHT TURNS")
+}
 var^ camera:f32^[20] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     0.0, 0.0, 0.0, 0.0]
-repeat^ while^ gfx.frame() {
-    let^ width = f32^(gfx.width())
-    let^ height = f32^(gfx.height())
-    if^ width <= 0.0 or^ height <= 0.0 { continue^ }
+# Input and the fixed-step simulation for one frame.
+let^ step_game = p^ {
+    let^ was_playing = !paused and^ player.health > 0 and^ !won
+    if^ !gfx.focused() or^ gfx.focus_lost() {
+        paused := true^
+    else^:
+        if^ gfx.key_pressed("Escape") {
+            paused := !paused
+        elif^ paused and^ gfx.mouse_pressed(gfx.MOUSE_LEFT):
+            paused := false^
+        }
+        if^ gfx.key_pressed("R") and^ (player.health <= 0 or^ won) {
+            reset_game()
+            paused := false^
+        }
+    }
+    let^ playing = !paused and^ player.health > 0 and^ !won
+    if^ playing != was_playing { gfx.set_mouse_relative(playing and^ frames < 0) }
+    let^ dt = if^ frames > 0: STEP el^: fmin(f32^(gfx.delta_time()), 0.1);
+    if^ playing and^ was_playing {
+        if^ gfx.mouse_relative() { player.yaw -= gfx.mouse_dx() * 0.003 }
+        if^ gfx.key_down("Left") { player.yaw += dt * 2.2 }
+        if^ gfx.key_down("Right") { player.yaw -= dt * 2.2 }
+        player.yaw := player.yaw - TAU * math.floor(player.yaw / TAU)
+        if^ gfx.key_pressed("E") or^ gfx.key_pressed("Space") { use() }
+        var^ direction = F2{}
+        if^ gfx.key_down("W") or^ gfx.key_down("Up") { direction.y += 1.0 }
+        if^ gfx.key_down("S") or^ gfx.key_down("Down") { direction.y -= 1.0 }
+        if^ gfx.key_down("D") { direction.x += 1.0 }
+        if^ gfx.key_down("A") { direction.x -= 1.0 }
+        let^ running = gfx.key_down("Left Shift") or^ gfx.key_down("Right Shift")
+        accumulator += dt
+        repeat^ while^ accumulator >= STEP and^ !won and^ player.health > 0 {
+            tick(direction, running)
+            accumulator -= STEP
+        }
+    else^:
+        accumulator := 0.0
+    }
+    if^ (player.health <= 0 or^ won) and^ gfx.mouse_relative() { gfx.set_mouse_relative(false^) }
+}
+
+# The world mesh, rebuilt every frame, drawn from the player's eye.
+let^ draw_world = p^ width:f32^, height:f32^ {
     var^ mesh:grow^ Vertex[] = []
     world_mesh(ref^ mesh)
     if^ world_buffer.id = 0 or^ gfx.size(world_buffer) < mesh.bytes.len {
@@ -684,7 +1124,7 @@ repeat^ while^ gfx.frame() {
         gfx.update(world_buffer, mesh.bytes)
     }
     let^ ex = player.pos.x
-    let^ ey = player.z + 41.0
+    let^ ey = player.z + (if^ player.health <= 0: f32^(12.0) el^: 41.0 + math.sin(player.bob * 2.0) * 0.6;)
     let^ ez = -player.pos.y
     let^ view = look_along(ex, ey, ez, math.cos(player.yaw), -math.sin(player.yaw))
     let^ view_proj = multiply(perspective(1.1, width / height, 1.0, 12000.0), view)
@@ -700,6 +1140,14 @@ repeat^ while^ gfx.frame() {
         gfx.draw(mesh.len)
         gfx.end_pass()
     }
+}
+
+repeat^ while^ gfx.frame() {
+    let^ width = f32^(gfx.width())
+    let^ height = f32^(gfx.height())
+    if^ width <= 0.0 or^ height <= 0.0 { continue^ }
+    step_game()
+    draw_world(width, height)
     drawn += 1
     if^ drawn = frames { break^ }
 }
