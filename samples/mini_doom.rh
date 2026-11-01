@@ -472,27 +472,33 @@ def^ Actor {
            timer:f32^ = 0.0, pain:f32^ = 0.0, death:f32^ = 0.0, attacking:f32^ = 0.0 }
 }
 var^ player = Player{}
-# Counters and flags of the game and of the frame loop, in one record.
-def^ State {
-    self^{ game_time:f32^ = 0.0, damage_clock:f32^ = 0.0, secrets:i64^ = 0, total_secrets:i64^ = 0, won:bool^ = false^, message_time:f32^ = 0.0, next_fireball:i64^ = 0, kills:i64^ = 0, total_monsters:i64^ = 0, random_state:u64^ = 12345, sound_ready:bool^ = false^, wait_for_fire:bool^ = false^, fire_pending:bool^ = false^, accumulator:f32^ = 0.0, drawn:i64^ = 0, walking:bool^ = false^, quiet:bool^ = false^ }
-}
-var^ state = State{}
+var^ game_time:f32^ = 0.0
+var^ damage_clock:f32^ = 0.0
+var^ secrets:i64^ = 0
+var^ total_secrets:i64^ = 0
+var^ won = false^
+var^ message_time:f32^ = 0.0
+var^ next_fireball:i64^ = 0
+var^ kills:i64^ = 0
+var^ total_monsters:i64^ = 0
+var^ random_state:u64^ = 12345
+var^ sound_ready = false^
 var^ actors:Actor[..512] = []
 var^ message:u8^[..160] = []
 
 let^ say = p^ text:string^ {
     message.clear()
     message.append(text.bytes[0 .. imin(text.bytes.len, 160)])
-    state.message_time := 3.5
+    message_time := 3.5
 }
 
 let^ reset_game = p^ {
     actors.clear()
-    state.secrets := 0
-    state.total_secrets := 0
-    state.game_time := 0.0
-    state.damage_clock := 0.0
-    state.won := false^
+    secrets := 0
+    total_secrets := 0
+    game_time := 0.0
+    damage_clock := 0.0
+    won := false^
     for^ i from^ 0 to^ lines.len - 1 { lines[i].activated := false^ }
     for^ i from^ 0 to^ sectors.len - 1 {
         let^ s = ref^ sectors[i]
@@ -501,7 +507,7 @@ let^ reset_game = p^ {
         s.motion := 0
         s.wait := 0.0
         s.secret_found := false^
-        if^ s.special = 9 { state.total_secrets += 1 }
+        if^ s.special = 9 { total_secrets += 1 }
     }
     player := Player{}
     let^ things = records("THINGS", 10)
@@ -520,17 +526,17 @@ let^ reset_game = p^ {
     say("FIND THE BLUE KEY AND THE EXIT.  H: HELP")
 }
 let^ reset_actors = p^ {
-    state.kills := 0
-    state.total_monsters := 0
-    state.random_state := 12345
-    state.next_fireball := 0
+    kills := 0
+    total_monsters := 0
+    random_state := 12345
+    next_fireball := 0
     fireballs.clear()
     for^ 1 to^ 64 { fireballs.push(Fireball{}) }
     spawn_things()
-    if^ state.sound_ready { audio.stop_all() }
+    if^ sound_ready { audio.stop_all() }
 }
 
-# --- collision, sight and state.walking ----------------------------------------------------
+# --- collision, sight and walking ----------------------------------------------------
 
 let^ nearest_on_line = f^ p:F2, a:F2, b:F2 -> F2 {
     let^ d = b - a
@@ -674,7 +680,7 @@ let^ activate_line = p^ index:i64^, crossing:bool^ {
     if^ crossing != (special = 2 or^ special = 88) { return^ }
     if^ special = 11 {
         lines[index].activated := true^
-        state.won := true^
+        won := true^
         sound(8, player.pos)
         say("LEVEL COMPLETE!  R: PLAY AGAIN")
     elif^ special = 1 or^ special = 26 or^ special = 117:
@@ -797,7 +803,7 @@ let^ move_sectors = p^ {
 }
 
 let^ hurt_player = p^ damage:i64^ {
-    if^ player.health <= 0 or^ state.won { return^ }
+    if^ player.health <= 0 or^ won { return^ }
     let^ absorbed = imin(player.armor, damage / 3)
     player.armor -= absorbed
     player.health := imax(0, player.health - damage + absorbed)
@@ -807,8 +813,8 @@ let^ hurt_player = p^ damage:i64^ {
 }
 
 let^ tick = p^ direction:F2, running:bool^, firing:bool^ {
-    state.game_time += STEP
-    state.message_time := fmax(0.0, state.message_time - STEP)
+    game_time += STEP
+    message_time := fmax(0.0, message_time - STEP)
     player.cooldown := fmax(0.0, player.cooldown - STEP)
     player.flash := fmax(0.0, player.flash - STEP)
     player.hurt := fmax(0.0, player.hurt - STEP)
@@ -820,12 +826,12 @@ let^ tick = p^ direction:F2, running:bool^, firing:bool^ {
         let^ here = sector_at(player.pos)
         if^ sectors[here].special = 9 and^ !sectors[here].secret_found {
             sectors[here].secret_found := true^
-            state.secrets += 1
+            secrets += 1
             say("A SECRET IS REVEALED")
         }
-        state.damage_clock += STEP
-        if^ state.damage_clock >= 1.0 {
-            state.damage_clock -= 1.0
+        damage_clock += STEP
+        if^ damage_clock >= 1.0 {
+            damage_clock -= 1.0
             if^ sectors[here].special = 7 and^ player.z <= sectors[here].floor + 1.0 { hurt_player(5) }
         }
         for^ i from^ 0 to^ actors.len - 1 {
@@ -846,8 +852,8 @@ var^ fireballs:Fireball[..64] = []
 var^ sounds:grow^ audio.Sound[] = []
 
 let^ random_int = p^ limit:i64^ -> i64^ {
-    state.random_state := (state.random_state * 1664525 + 1013904223) bitand^ 4294967295
-    return^ i64^(state.random_state bitshift^ -8) % limit
+    random_state := (random_state * 1664525 + 1013904223) bitand^ 4294967295
+    return^ i64^(random_state bitshift^ -8) % limit
 }
 let^ monster = f^ kind:i64^ -> bool^ {
     return^ kind = 3004 or^ kind = 9 or^ kind = 3001 or^ kind = 3002 or^ kind = 58
@@ -877,8 +883,8 @@ let^ thing_picture = f^ kind:i64^ -> string^ {
 
 let^ load_sounds = p^ quiet:bool^ {
     if^ quiet { return^ }
-    state.sound_ready := audio.open(48000)
-    if^ !state.sound_ready {
+    sound_ready := audio.open(48000)
+    if^ !sound_ready {
         print^("audio unavailable; continuing silently")
         return^
     }
@@ -898,7 +904,7 @@ let^ load_sounds = p^ quiet:bool^ {
     }
 }
 let^ sound = p^ id:i64^, pos:F2 {
-    if^ !state.sound_ready { return^ }
+    if^ !sound_ready { return^ }
     let^ delta = pos - player.pos
     let^ dist = length2(delta)
     let^ right = F2{x=math.sin(player.yaw), y=-math.cos(player.yaw)}
@@ -925,7 +931,7 @@ let^ spawn_things = p^ {
             radius=if^ kind = 3002 or^ kind = 58: f32^(30.0) el^: 16.0;,
             health=if^ enemy: monster_health(kind) el^ kind = 2035: 20 el^: 0;,
             solid=solid, timer=0.5 + f32^(i % 10) * 0.1})
-        if^ enemy { state.total_monsters += 1 }
+        if^ enemy { total_monsters += 1 }
     }
 }
 
@@ -990,7 +996,7 @@ let^ damage_actor = p^ index:i64^, damage:i64^ {
     let^ kind = a.kind
     let^ pos = a.pos
     if^ monster(kind) {
-        state.kills += 1
+        kills += 1
         sound(11, pos)
     }
     # Barrels explode in update_actors, not here: no recursive chain reactions.
@@ -1051,9 +1057,9 @@ let^ fire_pellet = p^ weapon:i64^ {
 let^ launch_fireball = p^ a:Actor {
     let^ delta = player.pos - a.pos
     let^ dist = fmax(1.0, length2(delta))
-    fireballs[state.next_fireball] := Fireball{pos=a.pos, z=a.z + 32.0, velocity=delta * (280.0 / dist),
+    fireballs[next_fireball] := Fireball{pos=a.pos, z=a.z + 32.0, velocity=delta * (280.0 / dist),
         vz=(player.z + 30.0 - a.z - 32.0) * 280.0 / dist, life=5.0}
-    state.next_fireball := (state.next_fireball + 1) % fireballs.len
+    next_fireball := (next_fireball + 1) % fireballs.len
     sound(9, a.pos)
 }
 # A barrel's blast, once, as it starts to burst.
@@ -1165,15 +1171,15 @@ let^ vertex = f^ p:F2, height:f32^, u:f32^, v:f32^, picture:i64^, light:f32^ -> 
 }
 let^ lighting = f^ sector:i64^ -> f32^ {
     let^ s = sectors[sector]
-    if^ s.special = 1 and^ (i64^(state.game_time * 9.0) + sector * 7) % 11 < 3 { return^ s.light * 0.4 }
-    if^ s.special = 12 and^ state.game_time - math.floor(state.game_time) < 0.15 { return^ s.light * 0.35 }
+    if^ s.special = 1 and^ (i64^(game_time * 9.0) + sector * 7) % 11 < 3 { return^ s.light * 0.4 }
+    if^ s.special = 12 and^ game_time - math.floor(game_time) < 0.15 { return^ s.light * 0.35 }
     return^ fmax(0.18, s.light)
 }
 # Liquids cycle through their numbered frames.
 let^ animated_flat = f^ id:i64^ -> i64^ {
     if^ id < 0 { return^ sky_picture }
     let^ name = pictures[id].name
-    let^ frame = i64^(state.game_time * 4.0)
+    let^ frame = i64^(game_time * 4.0)
     if^ name.len = 7 and^ same(name[0 .. 6], "NUKAGE".bytes) {
         let^ next = numbered("NUKAGE", 1 + frame % 3, 1)
         return^ find_picture(next[..], 2)
@@ -1289,7 +1295,7 @@ let^ frame_picture = f^ prefix:string^, frame:i64^ -> i64^ {
 let^ actor_picture = f^ a:Actor -> i64^ {
     if^ a.kind = 2035 {
         if^ a.death > 0.0 { return^ frame_picture("BEXP", imin(4, i64^(a.death * 8.0))) }
-        return^ frame_picture("BAR1", i64^(state.game_time * 4.0) % 2)
+        return^ frame_picture("BAR1", i64^(game_time * 4.0) % 2)
     }
     if^ !monster(a.kind) { return^ a.picture }
     let^ prefix = monster_prefix(a.kind)
@@ -1300,7 +1306,7 @@ let^ actor_picture = f^ a:Actor -> i64^ {
     }
     if^ a.pain > 0.0 { return^ frame_picture(prefix, if^ a.kind = 3004 or^ a.kind = 9: 6 el^: 7;) }
     if^ a.attacking > 0.0 { return^ frame_picture(prefix, 5) }
-    return^ frame_picture(prefix, if^ a.awake: i64^(state.game_time * 8.0) % 4 el^: 0;)
+    return^ frame_picture(prefix, if^ a.awake: i64^(game_time * 8.0) % 4 el^: 0;)
 }
 let^ billboard = p^ out:ref^ grow^ Vertex[], pos:F2, bottom:f32^, id:i64^, shade:f32^ {
     let^ p = pictures[id]
@@ -1321,7 +1327,7 @@ let^ sprite_mesh = p^ out:ref^ grow^ Vertex[] {
     for^ i from^ 0 to^ fireballs.len - 1 {
         let^ f = fireballs[i]
         if^ f.life > 0.0 {
-            billboard(out, f.pos, f.z - 8.0, frame_picture("BAL1", i64^(state.game_time * 8.0) % 2), 1.0)
+            billboard(out, f.pos, f.z - 8.0, frame_picture("BAL1", i64^(game_time * 8.0) % 2), 1.0)
         }
     }
 }
@@ -1437,13 +1443,13 @@ let^ draw_status = p^ out:ref^ grow^ HudVertex[], screen:F2, bar_y:f32^ {
     text(out, 7.0, bar_y + 18.0, armor.text().bytes, WHITE)
     let^ ammo = if^ player.weapon = 1: $"FISTS" el^ player.weapon = 3: $"SHELLS {player.shells}" el^: $"AMMO {player.bullets}";
     text(out, center + 28.0, bar_y + 4.0, ammo.text().bytes, WHITE)
-    let^ tally = $"KILLS {state.kills}/{state.total_monsters}"
+    let^ tally = $"KILLS {kills}/{total_monsters}"
     text(out, center + 28.0, bar_y + 18.0, tally.text().bytes, WHITE)
     if^ player.blue_key {
         let^ key = find_picture("BKEYA0".bytes, 0)
         hud_quad(out, screen.x - 14.0, bar_y + 3.0, f32^(pictures[key].w) * 0.7, f32^(pictures[key].h) * 0.7, key, WHITE)
     }
-    if^ state.message_time > 0.0 { centered(out, screen.x, 7.0, message[..]) }
+    if^ message_time > 0.0 { centered(out, screen.x, 7.0, message[..]) }
 }
 let^ draw_overlays = p^ out:ref^ grow^ HudVertex[], screen:F2, bar_y:f32^, paused:bool^, help:bool^ {
     if^ help {
@@ -1453,14 +1459,14 @@ let^ draw_overlays = p^ out:ref^ grow^ HudVertex[], screen:F2, bar_y:f32^, pause
         text(out, 8.0, 50.0, "1-4: WEAPON  TAB: MAP  H: HELP".bytes, WHITE)
         text(out, 8.0, 62.0, "ESC: PAUSE  F12: SCREENSHOT".bytes, WHITE)
     }
-    if^ paused or^ player.health <= 0 or^ state.won {
+    if^ paused or^ player.health <= 0 or^ won {
         hud_quad(out, 0.0, bar_y * 0.5 - 22.0, screen.x, 48.0, 0, Color{r=0.0, g=0.0, b=0.0, a=0.75})
         centered(out, screen.x, bar_y * 0.5 - 15.0,
-            (if^ state.won: "LEVEL COMPLETE" el^ player.health <= 0: "YOU DIED" el^: "PAUSED";).bytes)
+            (if^ won: "LEVEL COMPLETE" el^ player.health <= 0: "YOU DIED" el^: "PAUSED";).bytes)
         centered(out, screen.x, bar_y * 0.5,
-            (if^ state.won or^ player.health <= 0: "R: RESTART" el^: "ESC OR CLICK TO RESUME";).bytes)
-        if^ state.won {
-            let^ found = $"SECRETS {state.secrets}/{state.total_secrets}"
+            (if^ won or^ player.health <= 0: "R: RESTART" el^: "ESC OR CLICK TO RESUME";).bytes)
+        if^ won {
+            let^ found = $"SECRETS {secrets}/{total_secrets}"
             centered(out, screen.x, bar_y * 0.5 + 12.0, found.text().bytes)
         }
     }
@@ -1585,6 +1591,8 @@ let^ hud_fragment = "
 # --- entry point -----------------------------------------------------------------------
 
 var^ frames:i64^ = -1
+var^ walking = false^
+var^ quiet = false^
 var^ path:string^ = "freedoom1-e1m1.wad"
 var^ argument:i64^ = 0
 repeat^ while^ argument < ....len {
@@ -1593,9 +1601,9 @@ repeat^ while^ argument < ....len {
         frames := i64^.parse(...[argument + 1]) catch^ -1
         argument += 1
     elif^ option = "--silent":
-        state.quiet := true^
+        quiet := true^
     elif^ option = "--walk":
-        state.walking := true^
+        walking := true^
     elif^ option = "--wad" and^ argument + 1 < ....len:
         path := ...[argument + 1]
         argument += 1
@@ -1621,7 +1629,7 @@ let^ uploaded = gfx.update(atlas, atlas_pixels[..])
 let^ sampler = gfx.sampler(gfx.NEAREST, gfx.CLAMP)
 let^ world_pipeline = gfx.pipeline(world_vertex, world_fragment, gfx.CULL_NONE, gfx.BLEND_NONE, true^, true^)
 let^ hud_pipeline = gfx.pipeline(hud_vertex, hud_fragment, gfx.CULL_NONE, gfx.BLEND_ALPHA, false^, false^)
-load_sounds(state.quiet or^ frames > 0)
+load_sounds(quiet or^ frames > 0)
 if^ atlas.id = 0 or^ !uploaded or^ sampler.id = 0 or^ world_pipeline.id = 0 or^ hud_pipeline.id = 0 {
     gfx.error(ref^ why)
     print^("mini doom: gfx setup failed: ", string^(why[..]) catch^ "?")
@@ -1629,10 +1637,14 @@ if^ atlas.id = 0 or^ !uploaded or^ sampler.id = 0 or^ world_pipeline.id = 0 or^ 
     return^
 }
 var^ world_buffer = gfx.Buffer{}
+var^ drawn:i64^ = 0
+var^ accumulator:f32^ = 0.0
+var^ wait_for_fire = false^
+var^ fire_pending = false^
 var^ hud_buffer = gfx.Buffer{}
 var^ help = false^
 var^ map = false^
-if^ state.walking {
+if^ walking {
     # A scripted walk for testing: focus and the W key, held throughout.
     gfx.inject_focus(true^)
     gfx.inject_key("W", true^)
@@ -1646,7 +1658,7 @@ var^ camera:f32^[20] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0
     0.0, 0.0, 0.0, 0.0]
 # Input and the fixed-step simulation for one frame.
 let^ step_game = p^ {
-    let^ was_playing = !paused and^ player.health > 0 and^ !state.won
+    let^ was_playing = !paused and^ player.health > 0 and^ !won
     if^ !gfx.focused() or^ gfx.focus_lost() {
         paused := true^
     else^:
@@ -1657,25 +1669,25 @@ let^ step_game = p^ {
         }
         if^ gfx.key_pressed("H") { help := !help }
         if^ gfx.key_pressed("Tab") { map := !map }
-        if^ gfx.key_pressed("R") and^ (player.health <= 0 or^ state.won) {
+        if^ gfx.key_pressed("R") and^ (player.health <= 0 or^ won) {
             reset_game()
             paused := false^
         }
     }
-    let^ playing = !paused and^ player.health > 0 and^ !state.won
+    let^ playing = !paused and^ player.health > 0 and^ !won
     if^ playing != was_playing {
         gfx.set_mouse_relative(playing and^ frames < 0)
-        state.wait_for_fire := true^
+        wait_for_fire := true^
     }
     let^ fire_down = gfx.mouse_down(gfx.MOUSE_LEFT) or^ gfx.key_down("Left Ctrl") or^ gfx.key_down("Right Ctrl")
-    if^ !fire_down { state.wait_for_fire := false^ }
+    if^ !fire_down { wait_for_fire := false^ }
     let^ dt = if^ frames > 0: STEP el^: fmin(f32^(gfx.delta_time()), 0.1);
     if^ playing and^ was_playing {
         # Keep a short press until a tick consumes it: a press and release can
         # both arrive between rendered frames.
-        if^ !state.wait_for_fire and^ (gfx.mouse_pressed(gfx.MOUSE_LEFT) or^ gfx.key_pressed("Left Ctrl") or^
+        if^ !wait_for_fire and^ (gfx.mouse_pressed(gfx.MOUSE_LEFT) or^ gfx.key_pressed("Left Ctrl") or^
             gfx.key_pressed("Right Ctrl")) {
-            state.fire_pending := true^
+            fire_pending := true^
         }
         if^ gfx.key_pressed("1") { player.weapon := 1 }
         if^ gfx.key_pressed("2") { player.weapon := 2 }
@@ -1692,20 +1704,20 @@ let^ step_game = p^ {
         if^ gfx.key_down("D") { direction.x += 1.0 }
         if^ gfx.key_down("A") { direction.x -= 1.0 }
         let^ running = gfx.key_down("Left Shift") or^ gfx.key_down("Right Shift")
-        state.accumulator += dt
-        repeat^ while^ state.accumulator >= STEP and^ !state.won and^ player.health > 0 {
-            tick(direction, running, (fire_down or^ state.fire_pending) and^ !state.wait_for_fire)
-            state.fire_pending := false^
-            state.accumulator -= STEP
+        accumulator += dt
+        repeat^ while^ accumulator >= STEP and^ !won and^ player.health > 0 {
+            tick(direction, running, (fire_down or^ fire_pending) and^ !wait_for_fire)
+            fire_pending := false^
+            accumulator -= STEP
         }
     else^:
-        state.accumulator := 0.0
-        state.fire_pending := false^
+        accumulator := 0.0
+        fire_pending := false^
     }
-    if^ (player.health <= 0 or^ state.won) and^ gfx.mouse_relative() { gfx.set_mouse_relative(false^) }
+    if^ (player.health <= 0 or^ won) and^ gfx.mouse_relative() { gfx.set_mouse_relative(false^) }
 }
 
-# The world mesh, rebuilt every frame, state.drawn from the player's eye; then the
+# The world mesh, rebuilt every frame, drawn from the player's eye; then the
 # HUD in a 320 x 200 canvas scaled to the window.
 let^ draw_world = p^ width:f32^, height:f32^ {
     var^ mesh:grow^ Vertex[] = []
@@ -1773,11 +1785,11 @@ repeat^ while^ gfx.frame() {
     if^ gfx.key_pressed("F12") {
         say(if^ gfx.screenshot("mini_doom.png"): "SAVED MINI_DOOM.PNG" el^: "SCREENSHOT FAILED";)
     }
-    state.drawn += 1
-    if^ state.drawn = frames { break^ }
+    drawn += 1
+    if^ drawn = frames { break^ }
 }
 if^ frames > 0 {
-    print^("drew ", state.drawn, " frames; saved mini_doom.png: ", gfx.screenshot("mini_doom.png"))
+    print^("drew ", drawn, " frames; saved mini_doom.png: ", gfx.screenshot("mini_doom.png"))
 }
-if^ state.sound_ready { audio.close() }
+if^ sound_ready { audio.close() }
 gfx.close()
