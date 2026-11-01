@@ -35,6 +35,13 @@ uint8_t rg_set_mouse_relative(uint8_t on);
 uint8_t rg_mouse_relative(void);
 /* Whether this frame had a focus-lost event. */
 uint8_t rg_focus_lost(void);
+uint8_t rg_key_released(const uint8_t *name, int64_t len);
+float rg_mouse_x(void);
+float rg_mouse_y(void);
+/* Queue input as if it came from the devices, seen at the next frame. */
+uint8_t rg_inject_key(const uint8_t *name, int64_t len, uint8_t down);
+void rg_inject_mouse(float x, float y, int64_t button, uint8_t down);
+uint8_t rg_inject_focus(uint8_t focused);
 
 /* Buffers and textures. */
 uint32_t rg_create_buffer(int64_t usage, int64_t size, const uint8_t *data, int64_t len);

@@ -140,6 +140,40 @@ uint8_t rg_focus_lost(void)
     return 0;
 }
 
+uint8_t rg_key_released(const uint8_t *name, int64_t len)
+{
+    return gs_gfx_key_released(bytes(name, len));
+}
+
+float rg_mouse_x(void)
+{
+    gs_gfx_float2 p;
+    gs_gfx_mouse_pos(&p);
+    return p.x;
+}
+
+float rg_mouse_y(void)
+{
+    gs_gfx_float2 p;
+    gs_gfx_mouse_pos(&p);
+    return p.y;
+}
+
+uint8_t rg_inject_key(const uint8_t *name, int64_t len, uint8_t down)
+{
+    return gs_gfx_inject_key(bytes(name, len), down);
+}
+
+void rg_inject_mouse(float x, float y, int64_t button, uint8_t down)
+{
+    gs_gfx_inject_mouse(x, y, button, down);
+}
+
+uint8_t rg_inject_focus(uint8_t focused)
+{
+    return gs_gfx_inject_focus(focused);
+}
+
 uint32_t rg_create_buffer(int64_t usage, int64_t size, const uint8_t *data, int64_t len)
 {
     return gs_gfx_create_buffer(usage, size, bytes(data, len)).id;

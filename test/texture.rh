@@ -1,0 +1,87 @@
+import^gfx
+let^ math = import^ std.math
+
+# A textured quad turned by a vertex uniform: a texture from R^ bytes, a
+# sampler binding, uniforms pushed every frame, and the frame loop.
+let^ vs = "
+    layout(location = 0) in vec2 a_pos;
+    layout(location = 1) in vec2 a_uv;
+    layout(set = 1, binding = 0) uniform Params { vec4 turn; };
+    layout(location = 0) out vec2 uv;
+    void main() {
+        uv = a_uv;
+        vec2 p = vec2(a_pos.x * turn.x - a_pos.y * turn.y, a_pos.x * turn.y + a_pos.y * turn.x);
+        gl_Position = vec4(p.x * turn.z, p.y, 0.0, 1.0);
+    }
+    "
+let^ fs = "
+    layout(location = 0) in vec2 uv;
+    layout(set = 2, binding = 0) uniform sampler2D tex;
+    layout(location = 0) out vec4 result;
+    void main() { result = texture(tex, uv); }
+    "
+
+var^ why:grow^ u8^[] = []
+if^ !gfx.open("rhat-gfx texture", 640, 360, 0) {
+    gfx.error(ref^ why)
+    print^("open failed: ", string^(why[..]) catch^ "?")
+    return^
+}
+
+# An 8 x 8 checkerboard, orange and dark blue.
+let^ size:i64^ = 8
+var^ pixels:grow^ u8^[] = []
+var^ y:i64^ = 0
+repeat^ while^ y < size {
+    var^ x:i64^ = 0
+    repeat^ while^ x < size {
+        if^ (x + y) % 2 = 0 {
+            pixels.push(240) pixels.push(140) pixels.push(30) pixels.push(255)
+        else^:
+            pixels.push(20) pixels.push(30) pixels.push(90) pixels.push(255)
+        }
+        x := x + 1
+    }
+    y := y + 1
+}
+let^ texture = gfx.texture2d(size, size)
+let^ uploaded = gfx.update(texture, pixels[..])
+let^ sampler = gfx.sampler(gfx.NEAREST, gfx.CLAMP)
+
+# Two triangles: position, then texture coordinates.
+let^ vertices:f32^[24] = [
+    -0.6, -0.6, 0.0, 1.0,   0.6, -0.6, 1.0, 1.0,   0.6, 0.6, 1.0, 0.0,
+    -0.6, -0.6, 0.0, 1.0,   0.6, 0.6, 1.0, 0.0,   -0.6, 0.6, 0.0, 0.0
+]
+let^ buffer = gfx.buffer(gfx.BUFFER_VERTEX, vertices.bytes)
+let^ pipeline = gfx.pipeline(vs, fs, gfx.CULL_NONE, gfx.BLEND_NONE, false^, false^)
+if^ texture.id = 0 or^ !uploaded or^ sampler.id = 0 or^ buffer.id = 0 or^ pipeline.id = 0 {
+    gfx.error(ref^ why)
+    print^("setup failed: ", string^(why[..]) catch^ "?")
+    gfx.close()
+    return^
+}
+
+var^ frames:i64^ = 0
+var^ params:f32^[4] = [1.0, 0.0, 1.0, 0.0]
+repeat^ while^ gfx.frame() and^ frames < 40 {
+    # Turn by 1/160 of a circle a frame; keep the quad square on a wide screen.
+    let^ angle = f32^(frames) * 0.0392699
+    params[0] := math.cos(angle)
+    params[1] := math.sin(angle)
+    params[2] := f32^(gfx.height()) / f32^(gfx.width())
+    if^ gfx.begin_screen(0.1, 0.1, 0.12, 1.0, false^) {
+        gfx.bind(pipeline)
+        gfx.bind_vertex_buffer(buffer)
+        gfx.bind_texture(gfx.FRAGMENT, 0, texture, sampler)
+        gfx.push_uniforms(gfx.VERTEX, 0, params.bytes)
+        gfx.draw(6)
+        gfx.end_pass()
+    }
+    frames := frames + 1
+}
+print^("frames ", frames, " saved ", gfx.screenshot("texture.png"), " misuse ", gfx.misuse_count())
+gfx.release(pipeline)
+gfx.release(buffer)
+gfx.release(texture)
+gfx.close()

@@ -9,12 +9,13 @@ Goose の `embed_shader` が使うシェーダコンパイラ（cute_spirv）を
 
 | | |
 |---|---|
-| `gfx.rh` | R^ のモジュール `gfx`。ウィンドウ、入力、バッファ、テクスチャ、パイプライン、描画 |
+| `gfx.rh` | R^ のモジュール `gfx`。ウィンドウ、入力（テスト用の注入を含む）、バッファ、テクスチャ、パイプライン、描画 |
+| `audio.rh` | R^ のモジュール `audio`。f32 の PCM を音として登録し、音量・パン・ピッチを付けて再生 |
 | `src/shim/` | C 中継。goose_gfx の API は `{data, len}` のスライスやパック構造体を値で渡すので、スカラーと (ポインタ, 長さ) だけの関数に包む。シェーダの GLSL はここで実行時にコンパイルする |
 | `src/gfx/`, `src/audio/` | goose_gfx の C 層（そのまま） |
 | `src/shaderc/`, `third_party/cute_spirv/` | GLSL 450 を SPIR-V・MSL・HLSL へ。Goose のコンパイラのもの |
 | `third_party/SDL` | SDL3（サブモジュール、shallow） |
-| `test/` | `clear.rh`（画面クリア）、`triangle.rh`（シェーダと描画） |
+| `test/` | `clear.rh`（画面クリア）、`triangle.rh`（シェーダと描画）、`buffer.rh`（頂点バッファ）、`texture.rh`（テクスチャ・サンプラー・ユニフォーム）、`input.rh`（注入した入力の検査）、`audio.rh`（音の再生開始） |
 | `scripts/run.ps1` | ネイティブ層をビルドし、R^ のプログラムをリンクして実行する（Windows） |
 
 ## 試す
@@ -29,9 +30,9 @@ git submodule update --init
 
 ## 状況
 
-- 動作確認済み: ウィンドウ、クリア、GLSL のコンパイルと三角形、スクリーンショット（Windows、Vulkan/D3D12）。
-- 入力・音・バッファ・テクスチャは中継に入っていますが、R^ 側のテストはまだありません。
-- 頂点バッファに R^ の配列を渡すには、`f32^[]` などを `u8^[:]` として見る変換が R^ に必要です（未対応）。
+- 動作確認済み（Windows）: ウィンドウとフレームループ、GLSL のコンパイル、頂点バッファ（`a.bytes`）、テクスチャとサンプラー、
+  ユニフォーム、キーボード・マウス・フォーカスの入力、音の再生、スクリーンショット。
+- 入力は、フォーカスのないウィンドウでは捨てられます（goose_gfx の仕様）。隠したウィンドウで試すときは `inject_focus(true^)` を先に送ります。
 - Linux・macOS のビルドとスクリプトは未整備です。
 
 ## ライセンス

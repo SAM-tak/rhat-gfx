@@ -1,0 +1,63 @@
+import^gfx
+
+# Input through the frame loop, driven by injected events: a key press is seen
+# for one frame, held while down, released once; mouse position and buttons
+# likewise. Prints one line per check and the number that failed.
+
+var^ failures:i64^ = 0
+let^ check = p^what:string^, ok:bool^, count:ref^ i64^ {
+    if^ !ok {
+        *count += 1
+        print^("FAIL ", what)
+    }
+}
+
+var^ why:grow^ u8^[] = []
+if^ !gfx.open("rhat-gfx input", 320, 200, gfx.WINDOW_HIDDEN) {
+    gfx.error(ref^ why)
+    print^("open failed: ", string^(why[..]) catch^ "?")
+    return^
+}
+# A hidden window has no focus, and gfx drops input without focus.
+gfx.inject_focus(true^)
+gfx.frame()
+check("focused", gfx.focused(), ref^ failures)
+
+gfx.inject_key("W", true^)
+gfx.frame()
+check("W pressed", gfx.key_pressed("W"), ref^ failures)
+check("W down", gfx.key_down("W"), ref^ failures)
+check("S not down", !gfx.key_down("S"), ref^ failures)
+
+gfx.frame()
+check("W pressed only once", !gfx.key_pressed("W"), ref^ failures)
+check("W still down", gfx.key_down("W"), ref^ failures)
+
+gfx.inject_key("W", false^)
+gfx.frame()
+check("W released", gfx.key_released("W"), ref^ failures)
+check("W up", !gfx.key_down("W"), ref^ failures)
+
+gfx.inject_key("Left Shift", true^)
+gfx.frame()
+check("Left Shift down", gfx.key_down("Left Shift"), ref^ failures)
+gfx.inject_key("Left Shift", false^)
+
+gfx.inject_mouse(100.0, 50.0, gfx.MOUSE_LEFT, true^)
+gfx.frame()
+check("mouse moved", gfx.mouse_x() = 100.0 and^ gfx.mouse_y() = 50.0, ref^ failures)
+check("left pressed", gfx.mouse_pressed(gfx.MOUSE_LEFT), ref^ failures)
+check("left down", gfx.mouse_down(gfx.MOUSE_LEFT), ref^ failures)
+
+gfx.inject_mouse(100.0, 50.0, gfx.MOUSE_LEFT, false^)
+gfx.frame()
+check("left up", !gfx.mouse_down(gfx.MOUSE_LEFT), ref^ failures)
+
+gfx.inject_focus(false^)
+gfx.frame()
+check("focus lost event", gfx.focus_lost(), ref^ failures)
+
+let^ dt = gfx.delta_time()
+check("delta time", dt >= 0.0 and^ dt < 5.0, ref^ failures)
+print^("input checks failed: ", failures, " misuse ", gfx.misuse_count())
+gfx.close()
