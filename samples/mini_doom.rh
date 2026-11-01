@@ -12,112 +12,123 @@
 
 import^gfx
 import^audio
-let^ fs = import^ std.fs
-let^ math = import^ std.math
+
+let^fs = import^std.fs
+let^math = import^std.math
 
 # --- small math ---------------------------------------------------------------
 
-def^ F2 {
+def^F2 {
     self^{ x:f32^ = 0.0, y:f32^ = 0.0 }
-    op^+ = f^ self^, b:F2 -> F2 { return^ F2{x=self^.x + b.x, y=self^.y + b.y} }
-    op^- = f^ self^, b:F2 -> F2 { return^ F2{x=self^.x - b.x, y=self^.y - b.y} }
-    op^* = f^ self^, s:f32^ -> F2 { return^ F2{x=self^.x * s, y=self^.y * s} }
+
+    op^+ = f^self^, b:F2 -> F2 { F2{ x=self^.x + b.x, y=self^.y + b.y} }
+    op^- = f^self^, b:F2 -> F2 { F2{ x=self^.x - b.x, y=self^.y - b.y} }
+    op^* = f^self^, s:f32^ -> F2 { F2{ x=self^.x * s, y=self^.y * s} }
+    op^cross^ = f^self^, b:F2 -> f32^ { self^.x * b.y - self^.y * b.x }
+    op^dot^ = f^self^, b:ref^F2 -> f32^ { self^.x * b.x + self^.y * b.y }
+    length = f^self^ -> f32^ { math.sqrt(self^dot^self^) }
 }
 
-let^ cross2 = f^ a:F2, b:F2 -> f32^ { return^ a.x * b.y - a.y * b.x }
-let^ dot2 = f^ a:F2, b:F2 -> f32^ { return^ a.x * b.x + a.y * b.y }
-let^ length2 = f^ a:F2 -> f32^ { return^ math.sqrt(dot2(a, a)) }
-let^ distance2 = f^ a:F2, b:F2 -> f32^ { return^ length2(a - b) }
-let^ fmin = f^ a:f32^, b:f32^ -> f32^ { return^ if^ a < b: a el^: b; }
-let^ fmax = f^ a:f32^, b:f32^ -> f32^ { return^ if^ a > b: a el^: b; }
-let^ imin = f^ a:i64^, b:i64^ -> i64^ { return^ if^ a < b: a el^: b; }
-let^ imax = f^ a:i64^, b:i64^ -> i64^ { return^ if^ a > b: a el^: b; }
-let^ fclamp = f^ x:f32^, lo:f32^, hi:f32^ -> f32^ { return^ fmin(fmax(x, lo), hi) }
+let^distance = f^a:F2, b:F2 -> f32^ { (a - b).length() }
+let^cross = f^a:F2, b:F2 -> f32^ { a.x * b.y - a.y * b.x }
+let^dot = f^a:F2, b:F2 -> f32^ { a.x * b.x + a.y * b.y }
 
-let^ require = f^ ok:bool^, message:string^ {
-    if^ !ok { panic^ message }
+let^fmin = f^a:f32^, b:f32^ -> f32^{ if^ a < b: a el^: b; }
+let^fmax = f^a:f32^, b:f32^ -> f32^{ if^ a > b: a el^: b; }
+let^imin = f^a:i64^, b:i64^ -> i64^{ if^ a < b: a el^: b; }
+let^imax = f^a:i64^, b:i64^ -> i64^{ if^ a > b: a el^: b; }
+let^fclamp = f^x:f32^, lo:f32^, hi:f32^-> f32^{ fmin(fmax(x, lo), hi) }
+
+let^require = f^ok:bool^, message:string^ {
+    if^!ok { panic^ message }
 }
 
 # --- the WAD directory and little-endian values --------------------------------
 
-def^ Lump { self^{ name:u8^[..8] = [], start:i64^ = 0, size:i64^ = 0 } }
-var^ wad:grow^ u8^[] = []
-var^ lumps:grow^ Lump[] = []
+def^Lump { self^{ name:u8^[..8] = [], start:i64^ = 0, size:i64^ = 0 } }
+var^wad:grow^u8^[] = []
+var^lumps:grow^Lump[] = []
 
-let^ u16le = f^ data:u8^[:], at:i64^ -> i64^ {
+let^u16le = f^data:u8^[:], at:i64^ -> i64^ {
     if^ at < 0 or^ at + 2 > data.len { panic^ "mini doom: truncated 16-bit WAD field" }
     return^ i64^(data[at]) + i64^(data[at + 1]) * 256
 }
-let^ i16le = f^ data:u8^[:], at:i64^ -> i64^ {
+let^i16le = f^data:u8^[:], at:i64^ -> i64^ {
     let^ v = u16le(data, at)
     return^ if^ v >= 32768: v - 65536 el^: v;
 }
-let^ u32le = f^ data:u8^[:], at:i64^ -> i64^ {
+let^u32le = f^data:u8^[:], at:i64^ -> i64^ {
     return^ u16le(data, at) + u16le(data, at + 2) * 65536
 }
+
 # A name of up to eight bytes, ending at the first NUL.
-let^ name_at = f^ data:u8^[:], at:i64^ -> u8^[..8] {
-    require(at >= 0 and^ at + 8 <= data.len, "mini doom: truncated WAD name")
-    var^ name:u8^[..8] = []
-    var^ i:i64^ = 0
-    repeat^ while^ i < 8 and^ data[at + i] != 0 {
+let^name_at = f^data:u8^[:], at:i64^ -> u8^[..8] {
+    require(at >= 0 and^at + 8 <= data.len, "mini doom: truncated WAD name")
+    var^name:u8^[..8] = []
+    var^i:i64^ = 0
+    repeat^while^i < 8 and^data[at + i] != 0 {
         name.push(data[at + i])
         i += 1
     }
     return^ name
 }
-let^ same = f^ a:u8^[:], b:u8^[:] -> bool^ {
-    if^ a.len != b.len { return^ false^ }
-    for^ i from^ 0 to^ a.len - 1 {
+
+let^same = f^a:u8^[:], b:u8^[:] -> bool^{
+    if^a.len != b.len { return^ false^ }
+    for^i from^ 0 to^ a.len - 1 {
         if^ a[i] != b[i] { return^ false^ }
     }
     return^ true^
 }
+
 # prefix followed by n written with at least digits digits.
-let^ numbered = f^ prefix:string^, n:i64^, digits:i64^ -> u8^[..8] {
-    var^ name:u8^[..8] = []
+let^numbered = f^prefix:string^, n:i64^, digits:i64^ -> u8^[..8] {
+    var^name:u8^[..8] = []
     name.append(prefix.bytes)
-    var^ text:u8^[..8] = []
-    var^ rest = n
-    repeat^ while^ rest > 0 or^ text.len < digits {
+    var^text:u8^[..8] = []
+    var^rest = n
+    repeat^while^ rest > 0 or^ text.len < digits {
         text.push(u8^(48 + rest % 10))
         rest := rest / 10
     }
-    repeat^ while^ text.len > 0 { name.push(text.pop()) }
-    return^ name
+    repeat^while^text.len > 0 { name.push(text.pop()) }
+    return^name
 }
 
-let^ find_lump = f^ name:u8^[:] -> i64^ {
+let^find_lump = f^name:u8^[:] -> i64^ {
     # Last definition wins, as in a normal WAD directory.
-    var^ i = lumps.len
-    repeat^ while^ i > 0 {
+    var^i = lumps.len
+    repeat^while^ i > 0 {
         i -= 1
-        if^ same(lumps[i].name[..], name) { return^ i }
+        if^same(lumps[i].name[..], name) { return^ i }
     }
-    return^ -1
+    return^-1
 }
-let^ lump_bytes = f^ i:i64^ -> u8^[:] {
+
+let^lump_bytes = f^i:i64^ -> u8^[:] {
     require(i >= 0 and^ i < lumps.len, "mini doom: missing WAD lump")
-    return^ wad[lumps[i].start .. lumps[i].start + lumps[i].size]
+    return^wad[lumps[i].start .. lumps[i].start + lumps[i].size]
 }
-let^ lump = f^ name:u8^[:] -> u8^[:] {
-    let^ i = find_lump(name)
+
+let^lump = f^name:u8^[:] -> u8^[:] {
+    let^i = find_lump(name)
     require(i >= 0, "mini doom: missing lump")
-    return^ lump_bytes(i)
+    return^lump_bytes(i)
 }
-let^ load_wad = p^ path:string^ {
-    let^ loaded = fs.read(path, ref^ wad)
-    for^ loaded { when^ fits^ fs.Error: panic^ "mini doom: cannot read the WAD (give --wad PATH)" other^: ; }
+
+let^load_wad = p^path:string^{
+    let^loaded = fs.read(path, ref^ wad)
+    for^loaded { when^fits^fs.Error: panic^"mini doom: cannot read the WAD (give --wad PATH)" other^: ; }
     require(wad.len >= 12, "mini doom: truncated WAD header")
-    let^ signature = wad[0 .. 4]
-    require(same(signature, "IWAD".bytes) or^ same(signature, "PWAD".bytes), "mini doom: expected a Doom WAD")
-    let^ count = u32le(wad[..], 4)
-    let^ directory = u32le(wad[..], 8)
-    require(count <= 100000 and^ directory + count * 16 <= wad.len, "mini doom: bad WAD directory")
-    for^ i from^ 0 to^ count - 1 {
-        let^ at = directory + i * 16
-        let^ start = u32le(wad[..], at)
-        let^ size = u32le(wad[..], at + 4)
+    let^signature = wad[0 .. 4]
+    require(same(signature, "IWAD".bytes) or^same(signature, "PWAD".bytes), "mini doom: expected a Doom WAD")
+    let^count = u32le(wad[..], 4)
+    let^directory = u32le(wad[..], 8)
+    require(count <= 100000 and^directory + count * 16 <= wad.len, "mini doom: bad WAD directory")
+    for^i from^0 to^count - 1 {
+        let^at = directory + i * 16
+        let^start = u32le(wad[..], at)
+        let^size = u32le(wad[..], at + 4)
         require(start + size <= wad.len, "mini doom: lump extends past the end of the WAD")
         lumps.push(Lump{name=name_at(wad[..], at + 8), start=start, size=size})
     }
@@ -128,286 +139,313 @@ let^ load_wad = p^ path:string^ {
 
 # A shelf packer: each row is as tall as its tallest picture. Texture
 # coordinates repeat within each rectangle in the fragment shader.
-let^ ATLAS_W:i64^ = 2048
-let^ ATLAS_H:i64^ = 4096
-def^ Picture {
-    self^{ name:u8^[..8] = [], kind:i64^ = 0, x:i64^ = 0, y:i64^ = 0, w:i64^ = 0, h:i64^ = 0,
-           left:i64^ = 0, top:i64^ = 0 }
+let^ATLAS_W:i64^ = 2048
+let^ATLAS_H:i64^ = 4096
+def^Picture {
+    self^{
+        name:u8^[..8] = [], kind:i64^ = 0, x:i64^ = 0, y:i64^ = 0, w:i64^ = 0, h:i64^ = 0,
+        left:i64^ = 0, top:i64^ = 0
+    }
 }
-var^ pictures:grow^ Picture[] = []
-var^ atlas_pixels:grow^ u8^[] = []
-var^ shelf:i64^[..3] = [0, 0, 0]   # x, y and height of the current shelf
-var^ palette:grow^ u8^[] = []
-var^ font:grow^ i64^[] = []
-var^ sky_picture:i64^ = 0
+var^pictures:grow^Picture[] = []
+var^atlas_pixels:grow^u8^[] = []
+var^shelf:i64^[..3] = [0, 0, 0]   # x, y and height of the current shelf
+var^palette:grow^u8^[] = []
+var^font:grow^i64^[] = []
+var^sky_picture:i64^ = 0
 
-let^ find_picture = f^ name:u8^[:], kind:i64^ -> i64^ {
-    for^ i from^ 0 to^ pictures.len - 1 {
-        if^ pictures[i].kind = kind and^ same(pictures[i].name[..], name) { return^ i }
+let^find_picture = f^name:u8^[:], kind:i64^ -> i64^{
+    for^i from^0 to^pictures.len - 1 {
+        if^pictures[i].kind = kind and^same(pictures[i].name[..], name) { return^i }
     }
     return^ -1
 }
-let^ new_picture = p^ name:u8^[:], kind:i64^, w:i64^, h:i64^ -> i64^ {
-    require(w > 0 and^ h > 0 and^ w <= ATLAS_W and^ h <= 1024, "mini doom: bad picture dimensions")
-    if^ shelf[0] + w > ATLAS_W {
+
+let^new_picture = p^name:u8^[:], kind:i64^, w:i64^, h:i64^ -> i64^{
+    require(w > 0 and^h > 0 and^w <= ATLAS_W and^h <= 1024, "mini doom: bad picture dimensions")
+    if^shelf[0] + w > ATLAS_W {
         shelf[0] := 0
         shelf[1] += shelf[2]
         shelf[2] := 0
     }
     require(shelf[1] + h <= ATLAS_H, "mini doom: picture atlas is full")
-    var^ picture = Picture{kind=kind, x=shelf[0], y=shelf[1], w=w, h=h}
+    var^picture = Picture{kind=kind, x=shelf[0], y=shelf[1], w=w, h=h}
     picture.name.append(name)
     pictures.push(picture)
     shelf[0] += w
     shelf[2] := imax(shelf[2], h)
-    return^ pictures.len - 1
+    return^pictures.len - 1
 }
-let^ pixel = p^ pic:i64^, x:i64^, y:i64^, color:i64^ {
-    let^ p = pictures[pic]
-    if^ x < 0 or^ y < 0 or^ x >= p.w or^ y >= p.h { return^ }
-    let^ at = ((p.y + y) * ATLAS_W + p.x + x) * 4
+
+let^pixel = p^pic:i64^, x:i64^, y:i64^, color:i64^{
+    let^p = pictures[pic]
+    if^x < 0 or^y < 0 or^x >= p.w or^y >= p.h { return^ }
+    let^at = ((p.y + y) * ATLAS_W + p.x + x) * 4
     atlas_pixels[at] := palette[color * 3]
     atlas_pixels[at + 1] := palette[color * 3 + 1]
     atlas_pixels[at + 2] := palette[color * 3 + 2]
     atlas_pixels[at + 3] := 255
 }
-let^ paint_patch = p^ pic:i64^, data:u8^[:], origin_x:i64^, origin_y:i64^ {
-    let^ w = u16le(data, 0)
+
+let^paint_patch = p^pic:i64^, data:u8^[:], origin_x:i64^, origin_y:i64^{
+    let^w = u16le(data, 0)
     require(8 + w * 4 <= data.len, "mini doom: truncated patch columns")
-    for^ x from^ 0 to^ w - 1 {
-        var^ at = u32le(data, 8 + x * 4)
-        var^ previous:i64^ = -1
-        repeat^ {
+    for^x from^ 0 to^ w - 1 {
+        var^at = u32le(data, 8 + x * 4)
+        var^previous:i64^ = -1
+        repeat^{
             require(at < data.len, "mini doom: unterminated patch column")
-            var^ top = i64^(data[at])
-            if^ top = 255 { break^ }
+            var^top = i64^(data[at])
+            if^top = 255 { break^ }
             require(at + 4 <= data.len, "mini doom: truncated patch post")
-            let^ count = i64^(data[at + 1])
+            let^count = i64^(data[at + 1])
             require(at + count + 4 <= data.len, "mini doom: truncated patch pixels")
             # Also accepts the relative posts used by tall Doom patches.
-            if^ top <= previous { top += previous }
+            if^top <= previous { top += previous }
             previous := top
-            for^ y from^ 0 to^ count - 1 {
+            for^y from^ 0 to^ count - 1 {
                 pixel(pic, origin_x + x, origin_y + top + y, i64^(data[at + 3 + y]))
             }
             at += count + 4
         }
     }
 }
-let^ patch = p^ name:u8^[:] -> i64^ {
-    let^ cached = find_picture(name, 0)
-    if^ cached >= 0 { return^ cached }
-    let^ data = lump(name)
-    let^ id = new_picture(name, 0, u16le(data, 0), u16le(data, 2))
+
+let^patch = p^name:u8^[:] -> i64^{
+    let^cached = find_picture(name, 0)
+    if^cached >= 0 { return^ cached }
+    let^data = lump(name)
+    let^id = new_picture(name, 0, u16le(data, 0), u16le(data, 2))
     pictures[id].left := i16le(data, 4)
     pictures[id].top := i16le(data, 6)
     paint_patch(id, data, 0, 0)
     return^ id
 }
-let^ flat = p^ name:u8^[:] -> i64^ {
-    if^ same(name, "F_SKY1".bytes) { return^ -1 }
-    let^ cached = find_picture(name, 2)
-    if^ cached >= 0 { return^ cached }
-    let^ data = lump(name)
+
+let^flat = p^name:u8^[:] -> i64^{
+    if^same(name, "F_SKY1".bytes) { return^-1 }
+    let^cached = find_picture(name, 2)
+    if^cached >= 0 { return^cached }
+    let^data = lump(name)
     require(data.len = 4096, "mini doom: a flat must be 64 x 64")
-    let^ id = new_picture(name, 2, 64, 64)
-    for^ y:i64^ from^ 0 to^ 63 {
-        for^ x:i64^ from^ 0 to^ 63 { pixel(id, x, y, i64^(data[y * 64 + x])) }
+    let^id = new_picture(name, 2, 64, 64)
+    for^y:i64^ from^0 to^63 {
+        for^x:i64^ from^0 to^63 { pixel(id, x, y, i64^(data[y * 64 + x])) }
     }
     return^ id
 }
-let^ wall_texture = f^ name:u8^[:] -> i64^ {
-    if^ same(name, "-".bytes) { return^ -1 }
-    let^ id = find_picture(name, 1)
+
+let^wall_texture = f^name:u8^[:] -> i64^{
+    if^same(name, "-".bytes) { return^ -1 }
+    let^id = find_picture(name, 1)
     require(id >= 0, "mini doom: missing wall texture")
-    return^ id
+    return^id
 }
-let^ load_pictures = p^ {
-    for^ 1 to^ ATLAS_W * ATLAS_H * 4 { atlas_pixels.push(0) }
-    let^ pal = lump("PLAYPAL".bytes)
+
+let^load_pictures = p^{
+    for^1 to^ATLAS_W * ATLAS_H * 4 { atlas_pixels.push(0) }
+    let^pal = lump("PLAYPAL".bytes)
     require(pal.len >= 768, "mini doom: truncated palette")
     palette.append(pal[0 .. 768])
     # Picture 0 is an opaque white pixel, for HUD rectangles.
     new_picture("WHITE".bytes, 0, 1, 1)
-    for^ i from^ 0 to^ 3 { atlas_pixels[i] := 255 }
+    for^i from^0 to^3 { atlas_pixels[i] := 255 }
 
     load_textures()
     load_sprites()
 }
-let^ load_textures = p^ {
-    let^ names = lump("PNAMES".bytes)
-    let^ name_count = u32le(names, 0)
+
+let^load_textures = p^{
+    let^names = lump("PNAMES".bytes)
+    let^name_count = u32le(names, 0)
     require(4 + name_count * 8 <= names.len, "mini doom: truncated PNAMES")
-    let^ textures = lump("TEXTURE1".bytes)
-    let^ count = u32le(textures, 0)
-    for^ i from^ 0 to^ count - 1 {
-        let^ at = u32le(textures, 4 + i * 4)
-        let^ name = name_at(textures, at)
-        let^ id = new_picture(name[..], 1, u16le(textures, at + 12), u16le(textures, at + 14))
-        let^ patches = u16le(textures, at + 20)
-        for^ j from^ 0 to^ patches - 1 {
-            let^ p = at + 22 + j * 10
-            let^ number = u16le(textures, p + 4)
+    let^textures = lump("TEXTURE1".bytes)
+    let^count = u32le(textures, 0)
+    for^i from^0 to^count - 1 {
+        let^at = u32le(textures, 4 + i * 4)
+        let^name = name_at(textures, at)
+        let^id = new_picture(name[..], 1, u16le(textures, at + 12), u16le(textures, at + 14))
+        let^patches = u16le(textures, at + 20)
+        for^j from^0 to^patches - 1 {
+            let^p = at + 22 + j * 10
+            let^number = u16le(textures, p + 4)
             require(number < name_count, "mini doom: bad patch name index")
-            let^ patch_name = name_at(names, 4 + number * 8)
+            let^patch_name = name_at(names, 4 + number * 8)
             paint_patch(id, lump(patch_name[..]), i16le(textures, p), i16le(textures, p + 2))
         }
     }
 }
-let^ load_sprites = p^ {
+
+let^load_sprites = p^{
     # Load every sprite once; gameplay only looks up these IDs.
-    let^ first = find_lump("S_START".bytes)
-    let^ last = find_lump("S_END".bytes)
+    let^first = find_lump("S_START".bytes)
+    let^last = find_lump("S_END".bytes)
     require(first >= 0 and^ last > first, "mini doom: missing sprite markers")
-    for^ i from^ first + 1 to^ last - 1 {
-        if^ lumps[i].size > 0 { patch(lumps[i].name[..]) }
+    for^i from^first + 1 to^last - 1 {
+        if^lumps[i].size > 0 { patch(lumps[i].name[..]) }
     }
-    for^ c:i64^ from^ 0 to^ 127 {
-        let^ glyph = numbered("STCFN", c, 3)
-        font.push(if^ c >= 33 and^ c < 96: patch(glyph[..]) el^: 0;)
+    for^c:i64^ from^0 to^127 {
+        let^glyph = numbered("STCFN", c, 3)
+        font.push(if^c >= 33 and^c < 96: patch(glyph[..]) el^: 0;)
     }
-    let^ status = ["STBAR", "STFST00", "STFST10", "STFST20", "STFST30", "STFST40", "STFDEAD0"]
-    for^ i from^ 0 to^ 6 { patch(status[i].bytes) }
+    let^status = ["STBAR", "STFST00", "STFST10", "STFST20", "STFST30", "STFST40", "STFDEAD0"]
+    for^i from^0 to^6 { patch(status[i].bytes) }
     sky_picture := wall_texture("SKY1".bytes)
-    let^ liquids = ["NUKAGE1", "NUKAGE2", "NUKAGE3", "FWATER1", "FWATER2", "FWATER3", "FWATER4"]
-    for^ i from^ 0 to^ 6 { flat(liquids[i].bytes) }
+    let^liquids = ["NUKAGE1", "NUKAGE2", "NUKAGE3", "FWATER1", "FWATER2", "FWATER3", "FWATER4"]
+    for^i from^0 to^6 { flat(liquids[i].bytes) }
 }
 
 # --- map records ----------------------------------------------------------------
 
-def^ Side { self^{ offset:F2 = F2{}, upper:i64^ = -1, lower:i64^ = -1, middle:i64^ = -1, sector:i64^ = 0 } }
-def^ Line {
-    self^{ a:F2 = F2{}, b:F2 = F2{}, flags:i64^ = 0, special:i64^ = 0, tag:i64^ = 0, front:i64^ = 0,
-           back:i64^ = -1, activated:bool^ = false^ }
-}
-def^ Sector {
-    self^{ floor:f32^ = 0.0, ceiling:f32^ = 0.0, floor_pic:i64^ = -1, ceiling_pic:i64^ = -1,
-           light:f32^ = 1.0, special:i64^ = 0, tag:i64^ = 0, start_floor:f32^ = 0.0,
-           start_ceiling:f32^ = 0.0, motion:i64^ = 0, target:f32^ = 0.0, wait:f32^ = 0.0,
-           speed:f32^ = 0.0, secret_found:bool^ = false^ }
-}
-def^ Seg { self^{ a:F2 = F2{}, b:F2 = F2{}, sector:i64^ = 0 } }
-def^ Subsector { self^{ first:i64^ = 0, count:i64^ = 0, sector:i64^ = 0 } }
-def^ Node { self^{ origin:F2 = F2{}, delta:F2 = F2{}, front:i64^ = 0, back:i64^ = 0 } }
-def^ FloorTriangle { self^{ a:F2 = F2{}, b:F2 = F2{}, c:F2 = F2{}, sector:i64^ = 0 } }
-var^ vertices:grow^ F2[] = []
-var^ sides:grow^ Side[] = []
-var^ lines:grow^ Line[] = []
-var^ sectors:grow^ Sector[] = []
-var^ segs:grow^ Seg[] = []
-var^ subsectors:grow^ Subsector[] = []
-var^ nodes:grow^ Node[] = []
-var^ floor_triangles:grow^ FloorTriangle[] = []
+def^Side { self^{ offset:F2 = F2{}, upper:i64^ = -1, lower:i64^ = -1, middle:i64^ = -1, sector:i64^ = 0 } }
 
-let^ front_sector = f^ line:Line -> i64^ { return^ sides[line.front].sector }
-let^ back_sector = f^ line:Line -> i64^ {
-    return^ if^ line.back < 0: -1 el^: sides[line.back].sector;
+def^Line {
+    self^{
+        a:F2 = F2{}, b:F2 = F2{}, flags:i64^ = 0, special:i64^ = 0, tag:i64^ = 0, front:i64^ = 0,
+        back:i64^ = -1, activated:bool^ = false^
+    }
 }
 
-let^ sector_at = f^ p:F2 -> i64^ {
-    var^ child = nodes.len - 1
-    var^ steps:i64^ = 0
-    repeat^ while^ child < 32768 {
-        require(child >= 0 and^ child < nodes.len and^ steps <= nodes.len, "mini doom: invalid BSP tree")
+def^Sector {
+    self^{
+        floor:f32^ = 0.0, ceiling:f32^ = 0.0, floor_pic:i64^ = -1, ceiling_pic:i64^ = -1,
+        light:f32^ = 1.0, special:i64^ = 0, tag:i64^ = 0, start_floor:f32^ = 0.0,
+        start_ceiling:f32^ = 0.0, motion:i64^ = 0, target:f32^ = 0.0, wait:f32^ = 0.0,
+        speed:f32^ = 0.0, secret_found:bool^ = false^
+    }
+}
+
+def^Seg { self^{ a:F2 = F2{}, b:F2 = F2{}, sector:i64^ = 0 } }
+
+def^Subsector { self^{ first:i64^ = 0, count:i64^ = 0, sector:i64^ = 0 } }
+
+def^Node { self^{ origin:F2 = F2{}, delta:F2 = F2{}, front:i64^ = 0, back:i64^ = 0 } }
+
+def^FloorTriangle { self^{ a:F2 = F2{}, b:F2 = F2{}, c:F2 = F2{}, sector:i64^ = 0 } }
+
+var^vertices:grow^F2[] = []
+var^sides:grow^Side[] = []
+var^lines:grow^Line[] = []
+var^sectors:grow^Sector[] = []
+var^segs:grow^Seg[] = []
+var^subsectors:grow^Subsector[] = []
+var^nodes:grow^Node[] = []
+var^floor_triangles:grow^FloorTriangle[] = []
+
+let^front_sector = f^line:Line -> i64^ { sides[line.front].sector }
+let^back_sector = f^line:Line -> i64^ { if^line.back < 0: -1 el^: sides[line.back].sector; }
+
+let^sector_at = f^p:F2 -> i64^{
+    var^child = nodes.len - 1
+    var^steps:i64^ = 0
+    repeat^while^child < 32768 {
+        require(child >= 0 and^child < nodes.len and^steps <= nodes.len, "mini doom: invalid BSP tree")
         let^ n = nodes[child]
-        child := if^ cross2(n.delta, p - n.origin) <= 0.0: n.front el^: n.back;
+        child := if^(n.delta cross^(p - n.origin)) <= 0.0: n.front el^: n.back;
         steps += 1
     }
-    let^ leaf = child - 32768
+    let^leaf = child - 32768
     require(leaf < subsectors.len, "mini doom: bad BSP leaf")
-    return^ subsectors[leaf].sector
+    return^subsectors[leaf].sector
 }
 
 # Doom subsectors list only their solid and portal edges, not every BSP cut,
 # so a fan of seg ends leaves holes. Clip a bounding polygon down the BSP and
 # by the leaf's edges to recover each convex cell. Appends into the caller's
 # scratch; earlier views of it stay valid as it grows.
-let^ clip_polygon = p^ poly:F2[:], origin:F2, delta:F2, out:ref^ grow^ F2[] {
-    if^ poly.len = 0 { return^ }
-    var^ previous = poly[poly.len - 1]
-    var^ d0 = cross2(delta, previous - origin)
-    for^ i from^ 0 to^ poly.len - 1 {
-        let^ current = poly[i]
-        let^ d1 = cross2(delta, current - origin)
-        if^ (d0 <= 0.0) != (d1 <= 0.0) {
+let^clip_polygon = p^poly:F2[:], origin:F2, delta:F2, out:ref^grow^F2[] {
+    if^poly.len = 0 { return^ }
+    var^previous = poly[poly.len - 1]
+    var^d0 = delta cross^(previous - origin)
+    for^i from^0 to^poly.len - 1 {
+        let^current = poly[i]
+        let^d1 = delta cross^(current - origin)
+        if^(d0 <= 0.0) != (d1 <= 0.0) {
             out.push(previous + (current - previous) * (d0 / (d0 - d1)))
         }
-        if^ d1 <= 0.0 { out.push(current) }
+        if^d1 <= 0.0 { out.push(current) }
         previous := current
         d0 := d1
     }
 }
-let^ build_floors = p^ child:i64^, poly:F2[:], depth:i64^, scratch:ref^ grow^ F2[] {
+
+let^build_floors = p^child:i64^, poly:F2[:], depth:i64^, scratch:ref^grow^F2[] {
     require(depth <= nodes.len, "mini doom: cyclic BSP tree")
-    if^ poly.len < 3 { return^ }
-    let^ mark = scratch.len
-    if^ child >= 32768 {
+    if^poly.len < 3 { return^ }
+    let^mark = scratch.len
+    if^child >= 32768 {
         require(child - 32768 < subsectors.len, "mini doom: bad floor leaf")
-        let^ leaf = subsectors[child - 32768]
-        var^ start = mark
-        for^ i from^ 0 to^ leaf.count - 1 {
-            let^ edge = segs[leaf.first + i]
-            let^ input = if^ i = 0: poly el^: scratch[start ..];
+        let^leaf = subsectors[child - 32768]
+        var^start = mark
+        for^i from^0 to^leaf.count - 1 {
+            let^edge = segs[leaf.first + i]
+            let^input = if^ i = 0: poly el^: scratch[start ..];
             start := scratch.len
             clip_polygon(input, edge.a, edge.b - edge.a, scratch)
         }
-        let^ clipped = scratch[start ..]
-        for^ i from^ 1 to^ clipped.len - 2 {
+        let^clipped = scratch[start ..]
+        for^i from^1 to^clipped.len - 2 {
             # Drop numerical slivers; their centroids can round across a cut.
-            if^ math.abs(cross2(clipped[i] - clipped[0], clipped[i + 1] - clipped[0])) > 0.1 {
+            if^math.abs((clipped[i] - clipped[0])cross^(clipped[i + 1] - clipped[0])) > 0.1 {
                 floor_triangles.push(FloorTriangle{a=clipped[0], b=clipped[i], c=clipped[i + 1], sector=leaf.sector})
             }
         }
     else^:
         require(child >= 0 and^ child < nodes.len, "mini doom: bad floor node")
-        let^ n = nodes[child]
+        let^n = nodes[child]
         clip_polygon(poly, n.origin, n.delta, scratch)
         build_floors(n.front, scratch[mark ..], depth + 1, scratch)
-        let^ left_start = scratch.len
+        let^left_start = scratch.len
         clip_polygon(poly, n.origin, n.delta * -1.0, scratch)
         build_floors(n.back, scratch[left_start ..], depth + 1, scratch)
     }
     scratch.truncate(mark)
 }
-let^ records = f^ name:string^, size:i64^ -> u8^[:] {
-    let^ data = lump(name.bytes)
-    require(data.len > 0 and^ data.len % size = 0, "mini doom: bad map record size")
+
+let^records = f^name:string^, size:i64^ -> u8^[:] {
+    let^data = lump(name.bytes)
+    require(data.len > 0 and^data.len % size = 0, "mini doom: bad map record size")
     return^ data
 }
-let^ point = f^ data:u8^[:], at:i64^ -> F2 {
-    return^ F2{x=f32^(i16le(data, at)), y=f32^(i16le(data, at + 2))}
+
+let^point = f^data:u8^[:], at:i64^ -> F2 {
+    return^F2{x=f32^(i16le(data, at)), y=f32^(i16le(data, at + 2))}
 }
-let^ load_map = p^ {
+
+let^load_map = p^ {
     load_sectors()
     load_lines()
     load_tree()
-    let^ bounds:F2[4] = [F2{x=-32768.0, y=-32768.0}, F2{x=32768.0, y=-32768.0},
+    let^bounds:F2[4] = [F2{x=-32768.0, y=-32768.0}, F2{x=32768.0, y=-32768.0},
         F2{x=32768.0, y=32768.0}, F2{x=-32768.0, y=32768.0}]
-    var^ scratch:grow^ F2[] = []
+    var^scratch = grow^F2[]
     build_floors(nodes.len - 1, bounds[..], 0, ref^ scratch)
 }
-let^ load_sectors = p^ {
-    let^ v = records("VERTEXES", 4)
-    for^ i from^ 0 to^ v.len / 4 - 1 { vertices.push(point(v, i * 4)) }
-    let^ sec = records("SECTORS", 26)
-    for^ i from^ 0 to^ sec.len / 26 - 1 {
-        let^ at = i * 26
-        let^ bottom = f32^(i16le(sec, at))
-        let^ top = f32^(i16le(sec, at + 2))
-        let^ floor_name = name_at(sec, at + 4)
-        let^ ceiling_name = name_at(sec, at + 12)
-        sectors.push(Sector{floor=bottom, ceiling=top, floor_pic=flat(floor_name[..]),
+
+let^load_sectors = p^{
+    let^v = records("VERTEXES", 4)
+    for^i from^0 to^v.len / 4 - 1 { vertices.push(point(v, i * 4)) }
+    let^sec = records("SECTORS", 26)
+    for^i from^0 to^sec.len / 26 - 1 {
+        let^at = i * 26
+        let^bottom = f32^(i16le(sec, at))
+        let^top = f32^(i16le(sec, at + 2))
+        let^floor_name = name_at(sec, at + 4)
+        let^ceiling_name = name_at(sec, at + 12)
+        sectors.push(Sector{
+            floor=bottom, ceiling=top, floor_pic=flat(floor_name[..]),
             ceiling_pic=flat(ceiling_name[..]), light=fclamp(f32^(i16le(sec, at + 20)) / 255.0, 0.0, 1.0),
-            special=i16le(sec, at + 22), tag=i16le(sec, at + 24), start_floor=bottom, start_ceiling=top})
+            special=i16le(sec, at + 22), tag=i16le(sec, at + 24), start_floor=bottom, start_ceiling=top
+        })
     }
-    let^ sd = records("SIDEDEFS", 30)
-    for^ i from^ 0 to^ sd.len / 30 - 1 {
-        let^ at = i * 30
-        let^ sector = u16le(sd, at + 28)
+    let^sd = records("SIDEDEFS", 30)
+    for^i from^0 to^sd.len / 30 - 1 {
+        let^at = i * 30
+        let^sector = u16le(sd, at + 28)
         require(sector < sectors.len, "mini doom: bad sidedef sector")
-        let^ upper = name_at(sd, at + 4)
-        let^ lower = name_at(sd, at + 12)
-        let^ middle = name_at(sd, at + 20)
+        let^upper = name_at(sd, at + 4)
+        let^lower = name_at(sd, at + 12)
+        let^middle = name_at(sd, at + 20)
         sides.push(Side{offset=point(sd, at), upper=wall_texture(upper[..]), lower=wall_texture(lower[..]),
             middle=wall_texture(middle[..]), sector=sector})
     }
@@ -422,85 +460,97 @@ let^ load_lines = p^ {
         let^ back = i16le(ld, at + 12)
         require(a < vertices.len and^ b < vertices.len, "mini doom: bad linedef vertex")
         require(front < sides.len and^ back >= -1 and^ back < sides.len, "mini doom: bad linedef side")
-        lines.push(Line{a=vertices[a], b=vertices[b], flags=u16le(ld, at + 4), special=u16le(ld, at + 6),
-            tag=u16le(ld, at + 8), front=front, back=back})
+        lines.push(Line{
+            a = vertices[a], b = vertices[b], flags = u16le(ld, at + 4), special = u16le(ld, at + 6),
+            tag = u16le(ld, at + 8), front = front, back = back
+        })
     }
-    let^ sg = records("SEGS", 12)
-    for^ i from^ 0 to^ sg.len / 12 - 1 {
-        let^ at = i * 12
-        let^ a = u16le(sg, at)
-        let^ b = u16le(sg, at + 2)
-        let^ line = u16le(sg, at + 6)
-        let^ direction = u16le(sg, at + 8)
-        require(a < vertices.len and^ b < vertices.len and^ line < lines.len and^ direction <= 1, "mini doom: bad seg")
-        let^ side = if^ direction = 0: lines[line].front el^: lines[line].back;
+    let^sg = records("SEGS", 12)
+    for^i from^0 to^sg.len / 12 - 1 {
+        let^at = i * 12
+        let^a = u16le(sg, at)
+        let^b = u16le(sg, at + 2)
+        let^line = u16le(sg, at + 6)
+        let^direction = u16le(sg, at + 8)
+        require(a < vertices.len and^b < vertices.len and^line < lines.len and^direction <= 1, "mini doom: bad seg")
+        let^side = if^direction = 0: lines[line].front el^: lines[line].back;
         require(side >= 0, "mini doom: seg has no sidedef")
-        segs.push(Seg{a=vertices[a], b=vertices[b], sector=sides[side].sector})
+        segs.push(Seg{a = vertices[a], b = vertices[b], sector = sides[side].sector})
     }
 }
-let^ load_tree = p^ {
-    let^ ss = records("SSECTORS", 4)
-    for^ i from^ 0 to^ ss.len / 4 - 1 {
-        let^ count = u16le(ss, i * 4)
-        let^ first = u16le(ss, i * 4 + 2)
-        require(count > 0 and^ first + count <= segs.len, "mini doom: bad subsector")
-        subsectors.push(Subsector{first=first, count=count, sector=segs[first].sector})
+
+let^load_tree = p^{
+    let^ss = records("SSECTORS", 4)
+    for^i from^0 to^ss.len / 4 - 1 {
+        let^count = u16le(ss, i * 4)
+        let^first = u16le(ss, i * 4 + 2)
+        require(count > 0 and^first + count <= segs.len, "mini doom: bad subsector")
+        subsectors.push(Subsector{first = first, count = count, sector = segs[first].sector})
     }
-    let^ nd = records("NODES", 28)
-    for^ i from^ 0 to^ nd.len / 28 - 1 {
+    let^nd = records("NODES", 28)
+    for^i from^ 0 to^ nd.len / 28 - 1 {
         let^ at = i * 28
-        nodes.push(Node{origin=point(nd, at), delta=point(nd, at + 4), front=u16le(nd, at + 24),
-            back=u16le(nd, at + 26)})
+        nodes.push(Node{
+            origin = point(nd, at), delta = point(nd, at + 4), front = u16le(nd, at + 24),
+            back = u16le(nd, at + 26)
+        })
     }
 }
 
 # --- things, player and game state ---------------------------------------------------
 
-let^ STEP:f32^ = 0.016666667
-let^ TAU:f32^ = 6.2831853
-let^ PLAYER_RADIUS:f32^ = 16.0
-let^ PLAYER_HEIGHT:f32^ = 56.0
-def^ Player {
-    self^{ pos:F2 = F2{}, z:f32^ = 0.0, falling:f32^ = 0.0, yaw:f32^ = 0.0,
-           health:i64^ = 100, armor:i64^ = 0, bullets:i64^ = 50, shells:i64^ = 0,
-           weapon:i64^ = 2, shotgun:bool^ = false^, chaingun:bool^ = false^, blue_key:bool^ = false^,
-           cooldown:f32^ = 0.0, flash:f32^ = 0.0, hurt:f32^ = 0.0, bonus:f32^ = 0.0, bob:f32^ = 0.0 }
-}
-def^ Actor {
-    self^{ pos:F2 = F2{}, z:f32^ = 0.0, kind:i64^ = 0, picture:i64^ = 0, radius:f32^ = 16.0,
-           health:i64^ = 0, alive:bool^ = true^, solid:bool^ = false^, awake:bool^ = false^,
-           timer:f32^ = 0.0, pain:f32^ = 0.0, death:f32^ = 0.0, attacking:f32^ = 0.0 }
-}
-var^ player = Player{}
-var^ game_time:f32^ = 0.0
-var^ damage_clock:f32^ = 0.0
-var^ secrets:i64^ = 0
-var^ total_secrets:i64^ = 0
-var^ won = false^
-var^ message_time:f32^ = 0.0
-var^ next_fireball:i64^ = 0
-var^ kills:i64^ = 0
-var^ total_monsters:i64^ = 0
-var^ random_state:u64^ = 12345
-var^ sound_ready = false^
-var^ actors:Actor[..512] = []
-var^ message:u8^[..160] = []
+let^STEP:f32^ = 0.016666667
+let^TAU:f32^ = 6.2831853
+let^PLAYER_RADIUS:f32^ = 16.0
+let^PLAYER_HEIGHT:f32^ = 56.0
 
-let^ say = p^ text:string^ {
+def^Player {
+    self^{
+        pos:F2 = F2{}, z:f32^ = 0.0, falling:f32^ = 0.0, yaw:f32^ = 0.0,
+        health:i64^ = 100, armor:i64^ = 0, bullets:i64^ = 50, shells:i64^ = 0,
+        weapon:i64^ = 2, shotgun:bool^ = false^, chaingun:bool^ = false^, blue_key:bool^ = false^,
+        cooldown:f32^ = 0.0, flash:f32^ = 0.0, hurt:f32^ = 0.0, bonus:f32^ = 0.0, bob:f32^ = 0.0
+    }
+}
+
+def^Actor {
+    self^{
+        pos:F2 = F2{}, z:f32^ = 0.0, kind:i64^ = 0, picture:i64^ = 0, radius:f32^ = 16.0,
+        health:i64^ = 0, alive:bool^ = true^, solid:bool^ = false^, awake:bool^ = false^,
+        timer:f32^ = 0.0, pain:f32^ = 0.0, death:f32^ = 0.0, attacking:f32^ = 0.0
+    }
+}
+
+var^player = Player{}
+var^game_time:f32^ = 0.0
+var^damage_clock:f32^ = 0.0
+var^secrets:i64^ = 0
+var^total_secrets:i64^ = 0
+var^won = false^
+var^message_time:f32^ = 0.0
+var^next_fireball:i64^ = 0
+var^kills:i64^ = 0
+var^total_monsters:i64^ = 0
+var^random_state:u64^ = 12345
+var^sound_ready = false^
+var^actors:Actor[..512] = []
+var^message:u8^[..160] = []
+
+let^say = p^text:string^{
     message.clear()
     message.append(text.bytes[0 .. imin(text.bytes.len, 160)])
     message_time := 3.5
 }
 
-let^ reset_game = p^ {
+let^reset_game = p^{
     actors.clear()
     secrets := 0
     total_secrets := 0
     game_time := 0.0
     damage_clock := 0.0
     won := false^
-    for^ i from^ 0 to^ lines.len - 1 { lines[i].activated := false^ }
-    for^ i from^ 0 to^ sectors.len - 1 {
+    for^i from^ 0 to^lines.len - 1 { lines[i].activated := false^ }
+    for^i from^ 0 to^sectors.len - 1 {
         let^ s = ref^ sectors[i]
         s.floor := s.start_floor
         s.ceiling := s.start_ceiling
@@ -510,11 +560,11 @@ let^ reset_game = p^ {
         if^ s.special = 9 { total_secrets += 1 }
     }
     player := Player{}
-    let^ things = records("THINGS", 10)
-    var^ have_start = false^
-    for^ i from^ 0 to^ things.len / 10 - 1 {
-        let^ at = i * 10
-        if^ u16le(things, at + 6) = 1 {
+    let^things = records("THINGS", 10)
+    var^have_start = false^
+    for^i from^ 0 to^ things.len / 10 - 1 {
+        let^at = i * 10
+        if^u16le(things, at + 6) = 1 {
             player.pos := point(things, at)
             player.z := sectors[sector_at(player.pos)].floor
             player.yaw := f32^(i16le(things, at + 4)) * TAU / 360.0
@@ -525,126 +575,133 @@ let^ reset_game = p^ {
     reset_actors()
     say("FIND THE BLUE KEY AND THE EXIT.  H: HELP")
 }
-let^ reset_actors = p^ {
+
+let^reset_actors = p^{
     kills := 0
     total_monsters := 0
     random_state := 12345
     next_fireball := 0
     fireballs.clear()
-    for^ 1 to^ 64 { fireballs.push(Fireball{}) }
+    for^1 to^64 { fireballs.push(Fireball{}) }
     spawn_things()
-    if^ sound_ready { audio.stop_all() }
+    if^sound_ready { audio.stop_all() }
 }
 
 # --- collision, sight and walking ----------------------------------------------------
 
-let^ nearest_on_line = f^ p:F2, a:F2, b:F2 -> F2 {
-    let^ d = b - a
-    let^ t = fclamp(dot2(p - a, d) / fmax(dot2(d, d), 0.001), 0.0, 1.0)
-    return^ a + d * t
+let^nearest_on_line = f^p:F2, a:F2, b:F2 -> F2 {
+    let^d = b - a
+    let^t = fclamp(dot(p - a, d) / fmax(dot(d, d), 0.001), 0.0, 1.0)
+    return^a + d * t
 }
+
 # The distance along a finite ray to where it crosses ab, or -1 for none.
-let^ intersect_ray = f^ pos:F2, direction:F2, a:F2, b:F2 -> f32^ {
-    let^ edge = b - a
-    let^ denominator = cross2(direction, edge)
-    if^ math.abs(denominator) < 0.00001 { return^ -1.0 }
-    let^ t = cross2(a - pos, edge) / denominator
-    let^ u = cross2(a - pos, direction) / denominator
-    return^ if^ t > 0.001 and^ u >= 0.0 and^ u <= 1.0: t el^: f32^(-1.0);
+let^intersect_ray = f^pos:F2, direction:F2, a:F2, b:F2 -> f32^{
+    let^edge = b - a
+    let^denominator = direction cross^edge
+    if^math.abs(denominator) < 0.00001 { return^ -1.0 }
+    let^t = ((a - pos)cross^edge) / denominator
+    let^u = ((a - pos)cross^direction) / denominator
+    return^if^t > 0.001 and^u >= 0.0 and^u <= 1.0: t el^: f32^(-1.0);
 }
-let^ wall_distance = f^ pos:F2, z:f32^, direction:F2, slope:f32^, limit:f32^ -> f32^ {
-    var^ nearest = limit
-    for^ i from^ 0 to^ lines.len - 1 {
-        let^ line = lines[i]
-        let^ t = intersect_ray(pos, direction, line.a, line.b)
-        if^ t < 0.0 or^ t >= nearest { continue^ }
-        let^ back = back_sector(line)
-        if^ back < 0 {
+
+let^wall_distance = f^pos:F2, z:f32^, direction:F2, slope:f32^, limit:f32^ -> f32^{
+    var^nearest = limit
+    for^i from^0 to^lines.len - 1 {
+        let^line = lines[i]
+        let^t = intersect_ray(pos, direction, line.a, line.b)
+        if^t < 0.0 or^ t >= nearest { continue^ }
+        let^back = back_sector(line)
+        if^back < 0 {
             nearest := t
             continue^
         }
-        let^ a = sectors[front_sector(line)]
-        let^ b = sectors[back]
-        let^ height = z + t * slope
-        if^ height <= fmax(a.floor, b.floor) or^ height >= fmin(a.ceiling, b.ceiling) { nearest := t }
+        let^a = sectors[front_sector(line)]
+        let^b = sectors[back]
+        let^height = z + t * slope
+        if^height <= fmax(a.floor, b.floor) or^height >= fmin(a.ceiling, b.ceiling) { nearest := t }
     }
     return^ nearest
 }
-let^ visible = f^ a:F2, az:f32^, b:F2, bz:f32^ -> bool^ {
-    let^ dist = distance2(a, b)
-    if^ dist < 0.1 { return^ true^ }
+
+let^visible = f^a:F2, az:f32^, b:F2, bz:f32^ -> bool^{
+    let^dist = distance(a, b)
+    if^dist < 0.1 { return^true^ }
     return^ wall_distance(a, az, (b - a) * (1.0 / dist), (bz - az) / dist, dist) >= dist - 0.1
 }
-let^ can_stand = f^ pos:F2, z:f32^, radius:f32^, height:f32^, ignore:i64^, enemy:bool^ -> bool^ {
-    let^ here = sectors[sector_at(pos)]
-    if^ here.floor > z + 24.0 or^ here.ceiling < fmax(z, here.floor) + height { return^ false^ }
-    for^ i from^ 0 to^ lines.len - 1 {
-        let^ line = lines[i]
+
+let^can_stand = f^pos:F2, z:f32^, radius:f32^, height:f32^, ignore:i64^, enemy:bool^ -> bool^{
+    let^here = sectors[sector_at(pos)]
+    if^here.floor > z + 24.0 or^here.ceiling < fmax(z, here.floor) + height { return^false^ }
+    for^i from^0 to^lines.len - 1 {
+        let^line = lines[i]
         # A tiny tolerance lets a circle slide along an exactly tangent wall.
-        if^ distance2(pos, nearest_on_line(pos, line.a, line.b)) >= radius - 0.01 { continue^ }
-        let^ back = back_sector(line)
-        if^ back < 0 or^ (line.flags bitand^ 1) != 0 or^ (enemy and^ (line.flags bitand^ 2) != 0) {
-            return^ false^
+        if^distance(pos, nearest_on_line(pos, line.a, line.b)) >= radius - 0.01 { continue^ }
+        let^back = back_sector(line)
+        if^back < 0 or^(line.flags bitand^1) != 0 or^(enemy and^(line.flags bitand^2) != 0) {
+            return^false^
         }
-        let^ a = sectors[front_sector(line)]
-        let^ b = sectors[back]
-        let^ bottom = fmax(a.floor, b.floor)
-        let^ top = fmin(a.ceiling, b.ceiling)
-        if^ bottom > z + 24.0 or^ top - fmax(z, bottom) < height { return^ false^ }
+        let^a = sectors[front_sector(line)]
+        let^b = sectors[back]
+        let^bottom = fmax(a.floor, b.floor)
+        let^top = fmin(a.ceiling, b.ceiling)
+        if^bottom > z + 24.0 or^ top - fmax(z, bottom) < height { return^false^ }
     }
-    for^ i from^ 0 to^ actors.len - 1 {
-        let^ a = actors[i]
-        if^ i = ignore or^ !a.alive or^ !a.solid { continue^ }
-        if^ math.abs(a.z - z) < height and^ distance2(pos, a.pos) < radius + a.radius { return^ false^ }
+    for^i from^0 to^actors.len - 1 {
+        let^a = actors[i]
+        if^i = ignore or^!a.alive or^!a.solid { continue^ }
+        if^math.abs(a.z - z) < height and^distance(pos, a.pos) < radius + a.radius { return^false^ }
     }
-    if^ enemy and^ player.health > 0 and^ math.abs(player.z - z) < height and^
-        distance2(pos, player.pos) < radius + PLAYER_RADIUS {
-        return^ false^
+    if^enemy and^player.health > 0 and^math.abs(player.z - z) < height and^
+        distance(pos, player.pos) < radius + PLAYER_RADIUS {
+        return^false^
     }
     return^ true^
 }
-let^ slide = f^ pos:F2, z:f32^, delta:F2, radius:f32^, ignore:i64^, enemy:bool^ -> F2 {
-    let^ whole = pos + delta
-    if^ can_stand(whole, z, radius, PLAYER_HEIGHT, ignore, enemy) { return^ whole }
+
+let^slide = f^pos:F2, z:f32^, delta:F2, radius:f32^, ignore:i64^, enemy:bool^ -> F2 {
+    let^whole = pos + delta
+    if^can_stand(whole, z, radius, PLAYER_HEIGHT, ignore, enemy) { return^whole }
     # The axis fallback is small and forgiving; substeps prevent tunneling.
-    var^ next = F2{x=pos.x + delta.x, y=pos.y}
-    if^ !can_stand(next, z, radius, PLAYER_HEIGHT, ignore, enemy) { next := pos }
-    let^ y = F2{x=next.x, y=pos.y + delta.y}
-    if^ can_stand(y, z, radius, PLAYER_HEIGHT, ignore, enemy) { next := y }
+    var^next = F2{x=pos.x + delta.x, y=pos.y}
+    if^!can_stand(next, z, radius, PLAYER_HEIGHT, ignore, enemy) { next := pos }
+    let^y = F2{x=next.x, y=pos.y + delta.y}
+    if^can_stand(y, z, radius, PLAYER_HEIGHT, ignore, enemy) { next := y }
     return^ next
 }
-let^ walk = p^ direction:F2, running:bool^ {
-    let^ forward = F2{x=math.cos(player.yaw), y=math.sin(player.yaw)}
-    let^ right = F2{x=forward.y, y=-forward.x}
-    var^ movement = forward * direction.y + right * direction.x
-    let^ amount = length2(movement)
-    if^ amount > 1.0 { movement := movement * (1.0 / amount) }
+
+let^walk = p^direction:F2, running:bool^{
+    let^forward = F2{x=math.cos(player.yaw), y=math.sin(player.yaw)}
+    let^right = F2{x=forward.y, y=-forward.x}
+    var^movement = forward * direction.y + right * direction.x
+    let^amount = movement.length()
+    if^amount > 1.0 { movement := movement * (1.0 / amount) }
     movement := movement * ((if^ running: f32^(260.0) el^: 170.0;) * STEP)
-    let^ old = player.pos
-    let^ steps = imax(1, i64^(math.ceil(length2(movement) / 4.0)))
-    for^ i from^ 1 to^ steps {
+    let^old = player.pos
+    let^steps = imax(1, i64^(math.ceil(movement.length() / 4.0)))
+    for^i from^1 to^steps {
         player.pos := slide(player.pos, player.z, movement * (1.0 / f32^(steps)), PLAYER_RADIUS, -1, false^)
-        let^ floor_z = sectors[sector_at(player.pos)].floor
-        if^ floor_z > player.z {
+        let^floor_z = sectors[sector_at(player.pos)].floor
+        if^floor_z > player.z {
             player.z := floor_z
             player.falling := 0.0
         }
     }
-    let^ ground = sectors[sector_at(player.pos)].floor
-    if^ player.z > ground {
+    let^ground = sectors[sector_at(player.pos)].floor
+    if^player.z > ground {
         player.falling -= 700.0 * STEP
         player.z := fmax(ground, player.z + player.falling * STEP)
     else^:
         player.z := ground
         player.falling := 0.0
     }
-    player.bob += distance2(old, player.pos) * 0.055
-    if^ distance2(old, player.pos) > 0.001 {
-        for^ i from^ 0 to^ lines.len - 1 {
-            let^ special = lines[i].special
-            if^ special != 2 and^ special != 88 { continue^ }
-            let^ t = intersect_ray(old, player.pos - old, lines[i].a, lines[i].b)
-            if^ t > 0.0 and^ t <= 1.0 { activate_line(i, true^) }
+    player.bob += distance(old, player.pos) * 0.055
+    if^distance(old, player.pos) > 0.001 {
+        for^i from^0 to^lines.len - 1 {
+            let^special = lines[i].special
+            if^special != 2 and^ special != 88 { continue^ }
+            let^t = intersect_ray(old, player.pos - old, lines[i].a, lines[i].b)
+            if^t > 0.0 and^ t <= 1.0 { activate_line(i, true^) }
         }
     }
 }
@@ -709,30 +766,32 @@ let^ activate_line = p^ index:i64^, crossing:bool^ {
         sound(if^ special = 2: 6 el^: 7;, player.pos)
     }
 }
-let^ use = p^ {
-    let^ direction = F2{x=math.cos(player.yaw), y=math.sin(player.yaw)}
-    var^ nearest:f32^ = 80.0
-    var^ found:i64^ = -1
-    for^ i from^ 0 to^ lines.len - 1 {
-        let^ line = lines[i]
-        let^ t = intersect_ray(player.pos, direction, line.a, line.b)
-        if^ t < 0.0 or^ t >= nearest { continue^ }
-        let^ b = back_sector(line)
+
+let^use = p^{
+    let^direction = F2{x=math.cos(player.yaw), y=math.sin(player.yaw)}
+    var^nearest:f32^ = 80.0
+    var^found:i64^ = -1
+    for^i from^ 0 to^ lines.len - 1 {
+        let^line = lines[i]
+        let^t = intersect_ray(player.pos, direction, line.a, line.b)
+        if^t < 0.0 or^ t >= nearest { continue^ }
+        let^b = back_sector(line)
         # Usable faces and closed passages stop the use ray, so a farther
         # switch is never activated through a wall or a closed door.
-        let^ blocks = b < 0 or^ sectors[b].ceiling <= sectors[b].floor
-        let^ usable = line.special != 0 and^ line.special != 2 and^ line.special != 88 and^
-                     cross2(line.b - line.a, player.pos - line.a) <= 0.0
-        if^ blocks or^ usable {
+        let^blocks = b < 0 or^ sectors[b].ceiling <= sectors[b].floor
+        let^usable = line.special != 0 and^ line.special != 2 and^ line.special != 88 and^
+                     ((line.b - line.a) cross^(player.pos - line.a)) <= 0.0
+        if^blocks or^usable {
             nearest := t
-            found := if^ usable: i el^: -1;
+            found := if^usable: i el^: -1;
         }
     }
-    if^ found >= 0 { activate_line(found, false^) }
+    if^found >= 0 { activate_line(found, false^) }
 }
-let^ occupied = f^ index:i64^, ceiling:f32^ -> bool^ {
-    if^ sector_at(player.pos) = index and^ player.z + PLAYER_HEIGHT > ceiling { return^ true^ }
-    for^ i from^ 0 to^ actors.len - 1 {
+
+let^occupied = f^index:i64^, ceiling:f32^ -> bool^ {
+    if^sector_at(player.pos) = index and^ player.z + PLAYER_HEIGHT > ceiling { return^ true^ }
+    for^i from^ 0 to^ actors.len - 1 {
         let^ a = actors[i]
         if^ a.alive and^ a.solid and^ sector_at(a.pos) = index and^ a.z + PLAYER_HEIGHT > ceiling {
             return^ true^
@@ -740,79 +799,82 @@ let^ occupied = f^ index:i64^, ceiling:f32^ -> bool^ {
     }
     return^ false^
 }
-let^ move_ceiling = p^ i:i64^, amount:f32^ {
-    let^ s = ref^ sectors[i]
-    if^ s.motion = 1 or^ s.motion = 4 {
+
+let^move_ceiling = p^i:i64^, amount:f32^ {
+    let^s = ref^ sectors[i]
+    if^s.motion = 1 or^ s.motion = 4 {
         s.ceiling := fmin(s.target, s.ceiling + amount)
-        if^ s.ceiling = s.target {
+        if^s.ceiling = s.target {
             s.motion := if^ s.motion = 4: 0 el^: 2;
             s.wait := 4.0
         }
-    elif^ s.motion = 2:
+    elif^s.motion = 2:
         s.wait -= STEP
-        if^ s.wait <= 0.0 { s.motion := 3 }
+        if^s.wait <= 0.0 { s.motion := 3 }
     else^:
-        let^ next = fmax(s.floor, s.ceiling - amount)
-        if^ occupied(i, next) {
+        let^next = fmax(s.floor, s.ceiling - amount)
+        if^occupied(i, next) {
             s.motion := 1
         else^:
             s.ceiling := next
-            if^ next = s.floor { s.motion := 0 }
+            if^next = s.floor { s.motion := 0 }
         }
     }
 }
-let^ move_floor = p^ i:i64^, amount:f32^ {
-    let^ s = ref^ sectors[i]
-    let^ old_floor = s.floor
-    if^ s.motion = 5 or^ s.motion = 8 {
+
+let^move_floor = p^i:i64^, amount:f32^ {
+    let^s = ref^ sectors[i]
+    let^old_floor = s.floor
+    if^s.motion = 5 or^ s.motion = 8 {
         s.floor := fmax(s.target, s.floor - amount)
-        if^ s.floor = s.target {
-            s.motion := if^ s.motion = 8: 0 el^: 6;
+        if^s.floor = s.target {
+            s.motion := if^s.motion = 8: 0 el^: 6;
             s.wait := 3.0
         }
-    elif^ s.motion = 6:
+    elif^s.motion = 6:
         s.wait -= STEP
-        if^ s.wait <= 0.0 { s.motion := 7 }
-    elif^ s.motion = 7:
-        let^ next = fmin(s.start_floor, s.floor + amount)
+        if^s.wait <= 0.0 { s.motion := 7 }
+    elif^s.motion = 7:
+        let^next = fmin(s.start_floor, s.floor + amount)
         # A lift reverses instead of crushing someone into a ceiling.
-        if^ occupied(i, s.ceiling - (next - s.floor)) {
+        if^occupied(i, s.ceiling - (next - s.floor)) {
             s.motion := 5
         else^:
             s.floor := next
             if^ next = s.start_floor { s.motion := 0 }
         }
     }
-    let^ new_floor = s.floor
-    if^ sector_at(player.pos) = i and^ math.abs(player.z - old_floor) < 0.1 { player.z := new_floor }
-    for^ k from^ 0 to^ actors.len - 1 {
+    let^new_floor = s.floor
+    if^sector_at(player.pos) = i and^ math.abs(player.z - old_floor) < 0.1 { player.z := new_floor }
+    for^k from^ 0 to^ actors.len - 1 {
         let^ a = ref^ actors[k]
         if^ a.alive and^ sector_at(a.pos) = i and^ math.abs(a.z - old_floor) < 0.1 { a.z := new_floor }
     }
 }
-let^ move_sectors = p^ {
-    for^ i from^ 0 to^ sectors.len - 1 {
-        let^ motion = sectors[i].motion
-        let^ amount = sectors[i].speed * STEP
-        if^ motion >= 1 and^ motion <= 4 {
+
+let^move_sectors = p^{
+    for^i from^ 0 to^ sectors.len - 1 {
+        let^motion = sectors[i].motion
+        let^amount = sectors[i].speed * STEP
+        if^motion >= 1 and^ motion <= 4 {
             move_ceiling(i, amount)
-        elif^ motion >= 5:
+        elif^motion >= 5:
             move_floor(i, amount)
         }
     }
 }
 
-let^ hurt_player = p^ damage:i64^ {
-    if^ player.health <= 0 or^ won { return^ }
-    let^ absorbed = imin(player.armor, damage / 3)
+let^hurt_player = p^damage:i64^ {
+    if^player.health <= 0 or^ won { return^ }
+    let^absorbed = imin(player.armor, damage / 3)
     player.armor -= absorbed
     player.health := imax(0, player.health - damage + absorbed)
     player.hurt := 0.35
     sound(3, player.pos)
-    if^ player.health = 0 { say("YOU DIED.  R: TRY AGAIN") }
+    if^player.health = 0 { say("YOU DIED.  R: TRY AGAIN") }
 }
 
-let^ tick = p^ direction:F2, running:bool^, firing:bool^ {
+let^tick = p^direction:F2, running:bool^, firing:bool^ {
     game_time += STEP
     message_time := fmax(0.0, message_time - STEP)
     player.cooldown := fmax(0.0, player.cooldown - STEP)
@@ -820,23 +882,23 @@ let^ tick = p^ direction:F2, running:bool^, firing:bool^ {
     player.hurt := fmax(0.0, player.hurt - STEP)
     player.bonus := fmax(0.0, player.bonus - STEP)
     move_sectors()
-    if^ player.health > 0 {
+    if^player.health > 0 {
         walk(direction, running)
-        if^ firing { shoot() }
-        let^ here = sector_at(player.pos)
-        if^ sectors[here].special = 9 and^ !sectors[here].secret_found {
+        if^firing { shoot() }
+        let^here = sector_at(player.pos)
+        if^sectors[here].special = 9 and^ !sectors[here].secret_found {
             sectors[here].secret_found := true^
             secrets += 1
             say("A SECRET IS REVEALED")
         }
         damage_clock += STEP
-        if^ damage_clock >= 1.0 {
+        if^damage_clock >= 1.0 {
             damage_clock -= 1.0
-            if^ sectors[here].special = 7 and^ player.z <= sectors[here].floor + 1.0 { hurt_player(5) }
+            if^sectors[here].special = 7 and^ player.z <= sectors[here].floor + 1.0 { hurt_player(5) }
         }
-        for^ i from^ 0 to^ actors.len - 1 {
-            let^ a = actors[i]
-            if^ a.alive and^ a.death = 0.0 and^ !a.solid and^ distance2(a.pos, player.pos) < 28.0 and^
+        for^i from^ 0 to^ actors.len - 1 {
+            let^a = actors[i]
+            if^a.alive and^ a.death = 0.0 and^ !a.solid and^distance(a.pos, player.pos) < 28.0 and^
                 math.abs(a.z - player.z) < 32.0 {
                 pickup(i)
             }
@@ -847,25 +909,25 @@ let^ tick = p^ direction:F2, running:bool^, firing:bool^ {
 
 # --- monsters, pickups and sound -------------------------------------------------------
 
-def^ Fireball { self^{ pos:F2 = F2{}, z:f32^ = 0.0, velocity:F2 = F2{}, vz:f32^ = 0.0, life:f32^ = 0.0 } }
-var^ fireballs:Fireball[..64] = []
-var^ sounds:grow^ audio.Sound[] = []
+def^Fireball { self^{ pos:F2 = F2{}, z:f32^ = 0.0, velocity:F2 = F2{}, vz:f32^ = 0.0, life:f32^ = 0.0 } }
+var^fireballs:Fireball[..64] = []
+var^sounds:grow^ audio.Sound[] = []
 
-let^ random_int = p^ limit:i64^ -> i64^ {
+let^random_int = p^limit:i64^ -> i64^{
     random_state := (random_state * 1664525 + 1013904223) bitand^ 4294967295
     return^ i64^(random_state bitshift^ -8) % limit
 }
-let^ monster = f^ kind:i64^ -> bool^ {
+let^monster = f^kind:i64^ -> bool^{
     return^ kind = 3004 or^ kind = 9 or^ kind = 3001 or^ kind = 3002 or^ kind = 58
 }
-let^ monster_prefix = f^ kind:i64^ -> string^ {
+let^monster_prefix = f^kind:i64^ -> string^{
     return^ for^ kind: when^ 3004: "POSS" when^ 9: "SPOS" when^ 3001: "TROO" other^: "SARG";
 }
-let^ monster_health = f^ kind:i64^ -> i64^ {
+let^monster_health = f^kind:i64^ -> i64^{
     return^ for^ kind: when^ 3004: 20 when^ 9: 30 when^ 3001: 60 other^: 150;
 }
-let^ thing_picture = f^ kind:i64^ -> string^ {
-    return^ for^ kind:
+let^thing_picture = f^kind:i64^ -> string^{
+    return^for^kind:
         when^ 3004: "POSSA1" when^ 9: "SPOSA1" when^ 3001: "TROOA1" when^ 3002, 58: "SARGA1"
         when^ 2001: "SHOTA0" when^ 2002: "MGUNA0" when^ 2003: "LAUNA0" when^ 2004: "PLASA0"
         when^ 2005: "CSAWA0" when^ 2006: "BFUGA0" when^ 2007: "CLIPA0" when^ 2008: "SHELA0"
@@ -878,88 +940,92 @@ let^ thing_picture = f^ kind:i64^ -> string^ {
         when^ 10, 12: "PLAYW0" when^ 15: "PLAYN0" when^ 18: "POSSL0"
         when^ 19: "SPOSL0" when^ 20: "TROOM0" when^ 21: "SARGN0" when^ 24: "POL5A0"
         when^ 26: "POL6A0" when^ 60: "GOR4A0"
-        other^: "";
+        other^: ""
+    ;
 }
 
-let^ load_sounds = p^ quiet:bool^ {
-    if^ quiet { return^ }
+let^load_sounds = p^quiet:bool^{
+    if^quiet { return^ }
     sound_ready := audio.open(48000)
-    if^ !sound_ready {
+    if^!sound_ready {
         print^("audio unavailable; continuing silently")
         return^
     }
-    let^ names = ["DSPISTOL", "DSSHOTGN", "DSPUNCH", "DSPLPAIN", "DSITEMUP", "DSWPNUP", "DSDOROPN",
-                  "DSPSTART", "DSSWTCHN", "DSFIRSHT", "DSBAREXP", "DSPODTH1"]
-    for^ i from^ 0 to^ 11 {
-        let^ data = lump(names[i].bytes)
-        require(data.len >= 8 and^ u16le(data, 0) = 3, "mini doom: expected a DMX PCM sound")
-        let^ rate = u16le(data, 2)
-        let^ count = u32le(data, 4)
+    let^names = ["DSPISTOL", "DSSHOTGN", "DSPUNCH", "DSPLPAIN", "DSITEMUP", "DSWPNUP", "DSDOROPN",
+                 "DSPSTART", "DSSWTCHN", "DSFIRSHT", "DSBAREXP", "DSPODTH1"]
+    for^i from^ 0 to^ 11 {
+        let^data = lump(names[i].bytes)
+        require(data.len >= 8 and^u16le(data, 0) = 3, "mini doom: expected a DMX PCM sound")
+        let^rate = u16le(data, 2)
+        let^count = u32le(data, 4)
         require(rate >= 8000 and^ rate <= 192000 and^ count > 32 and^ 8 + count <= data.len,
             "mini doom: bad DMX sound")
-        var^ pcm:grow^ f32^[] = []
+        var^pcm:grow^ f32^[] = []
         # DMX pads each end with sixteen samples.
-        for^ j from^ 16 to^ count - 17 { pcm.push((f32^(data[8 + j]) - 128.0) / 128.0) }
+        for^j from^ 16 to^ count - 17 { pcm.push((f32^(data[8 + j]) - 128.0) / 128.0) }
         sounds.push(audio.sound(pcm[..], rate, 1))
     }
 }
-let^ sound = p^ id:i64^, pos:F2 {
-    if^ !sound_ready { return^ }
-    let^ delta = pos - player.pos
-    let^ dist = length2(delta)
-    let^ right = F2{x=math.sin(player.yaw), y=-math.cos(player.yaw)}
-    let^ pan = fclamp(dot2(delta, right) / fmax(dist, 1.0), -1.0, 1.0)
-    audio.play(sounds[id], fclamp(1.0 - dist / 1400.0, 0.0, 0.7), pan, 1.0, false^)
+
+let^sound = p^id:i64^, pos:F2 {
+    if^!sound_ready { return^ }
+    let^delta = pos - player.pos
+    let^dist = delta.length()
+    let^right = F2{ x = math.sin(player.yaw), y = -math.cos(player.yaw) }
+    let^pan = fclamp(dot(delta, right) / fmax(dist, 1.0), -1.0, 1.0)
+    sounds[id].play(fclamp(1.0 - dist / 1400.0, 0.0, 0.7), pan, 1.0, false^)
 }
 
-let^ spawn_things = p^ {
-    let^ things = records("THINGS", 10)
-    for^ i from^ 0 to^ things.len / 10 - 1 {
-        let^ at = i * 10
-        let^ pos = point(things, at)
-        let^ kind = u16le(things, at + 6)
-        let^ flags = u16le(things, at + 8)
+let^spawn_things = p^{
+    let^things = records("THINGS", 10)
+    for^i from^ 0 to^ things.len / 10 - 1 {
+        let^at = i * 10
+        let^pos = point(things, at)
+        let^kind = u16le(things, at + 6)
+        let^flags = u16le(things, at + 8)
         # Skill bit 2 is medium; bit 16 marks things for multiplayer only.
-        if^ (flags bitand^ 2) = 0 or^ (flags bitand^ 16) != 0 { continue^ }
-        let^ name = thing_picture(kind)
-        if^ name.bytes.len = 0 { continue^ }
-        let^ picture = find_picture(name.bytes, 0)
+        if^(flags bitand^ 2) = 0 or^ (flags bitand^ 16) != 0 { continue^ }
+        let^name = thing_picture(kind)
+        if^name.bytes.len = 0 { continue^ }
+        let^picture = find_picture(name.bytes, 0)
         require(picture >= 0, "mini doom: missing thing sprite")
-        let^ enemy = monster(kind)
-        let^ solid = enemy or^ kind = 2035 or^ kind = 2028 or^ kind = 43 or^ kind = 54 or^ kind = 47 or^ kind = 48
-        actors.push(Actor{pos=pos, z=sectors[sector_at(pos)].floor, kind=kind, picture=picture,
-            radius=if^ kind = 3002 or^ kind = 58: f32^(30.0) el^: 16.0;,
-            health=if^ enemy: monster_health(kind) el^ kind = 2035: 20 el^: 0;,
-            solid=solid, timer=0.5 + f32^(i % 10) * 0.1})
-        if^ enemy { total_monsters += 1 }
+        let^enemy = monster(kind)
+        let^solid = enemy or^ kind = 2035 or^ kind = 2028 or^ kind = 43 or^ kind = 54 or^ kind = 47 or^ kind = 48
+        actors.push(Actor{
+            pos = pos, z = sectors[sector_at(pos)].floor, kind = kind, picture = picture,
+            radius = if^ kind = 3002 or^ kind = 58: f32^(30.0) el^: 16.0;,
+            health = if^ enemy: monster_health(kind) el^ kind = 2035: 20 el^: 0;,
+            solid = solid, timer = 0.5 + f32^(i % 10) * 0.1
+        })
+        if^enemy { total_monsters += 1 }
     }
 }
 
-let^ pickup = p^ index:i64^ {
-    let^ kind = actors[index].kind
-    var^ taken = false^
-    var^ text = "PICKED UP AMMO"
-    if^ kind = 5 {
+let^pickup = p^index:i64^{
+    let^kind = actors[index].kind
+    var^taken = false^
+    var^text = "PICKED UP AMMO"
+    if^kind = 5 {
         player.blue_key := true^
         taken := true^
         text := "BLUE KEY"
-    elif^ kind = 2001:
+    elif^kind = 2001:
         taken := !player.shotgun or^ player.shells < 100
-        if^ !player.shotgun { player.weapon := 3 }
+        if^!player.shotgun { player.weapon := 3 }
         player.shotgun := true^
         player.shells := imin(100, player.shells + 8)
         text := "SHOTGUN"
-    elif^ kind = 2002:
+    elif^kind = 2002:
         taken := !player.chaingun or^ player.bullets < 300
-        if^ !player.chaingun { player.weapon := 4 }
+        if^!player.chaingun { player.weapon := 4 }
         player.chaingun := true^
         player.bullets := imin(300, player.bullets + 20)
         text := "CHAINGUN"
-    elif^ kind = 2008 or^ kind = 2049:
+    elif^kind = 2008 or^ kind = 2049:
         taken := player.shells < 100
         player.shells := imin(100, player.shells + (if^ kind = 2049: 20 el^: 4;))
         text := "SHELLS"
-    elif^ kind = 2007 or^ kind = 2048 or^ kind = 8 or^ kind = 2010 or^ kind = 2046 or^ kind = 2047 or^
+    elif^kind = 2007 or^ kind = 2048 or^ kind = 8 or^ kind = 2010 or^ kind = 2046 or^ kind = 2047 or^
          kind = 17 or^ kind = 2003 or^ kind = 2004 or^ kind = 2005:
         taken := player.bullets < 300
         player.bullets := imin(300, player.bullets + (if^ kind = 2048 or^ kind = 8: 50 el^: 10;))
@@ -984,27 +1050,29 @@ let^ pickup = p^ index:i64^ {
         sound(if^ kind = 2001 or^ kind = 2002: 5 el^: 4;, player.pos)
     }
 }
-let^ damage_actor = p^ index:i64^, damage:i64^ {
-    let^ a = ref^ actors[index]
-    if^ !a.alive or^ a.health <= 0 { return^ }
+
+let^damage_actor = p^index:i64^, damage:i64^{
+    let^a = ref^ actors[index]
+    if^!a.alive or^ a.health <= 0 { return^ }
     a.health -= damage
     a.awake := true^
     a.pain := 0.18
-    if^ a.health > 0 { return^ }
+    if^a.health > 0 { return^ }
     a.solid := false^
     a.death := 0.001
-    let^ kind = a.kind
-    let^ pos = a.pos
-    if^ monster(kind) {
+    let^kind = a.kind
+    let^pos = a.pos
+    if^monster(kind) {
         kills += 1
         sound(11, pos)
     }
     # Barrels explode in update_actors, not here: no recursive chain reactions.
 }
-let^ shoot = p^ {
-    if^ player.cooldown > 0.0 or^ player.health <= 0 { return^ }
-    let^ weapon = player.weapon
-    if^ (weapon = 3 and^ player.shells = 0) or^ ((weapon = 2 or^ weapon = 4) and^ player.bullets = 0) {
+
+let^shoot = p^{
+    if^player.cooldown > 0.0 or^ player.health <= 0 { return^ }
+    let^weapon = player.weapon
+    if^(weapon = 3 and^ player.shells = 0) or^ ((weapon = 2 or^ weapon = 4) and^ player.bullets = 0) {
         player.weapon := 1
         say("OUT OF AMMO - FISTS")
         return^
@@ -1014,263 +1082,276 @@ let^ shoot = p^ {
     elif^ weapon != 1:
         player.bullets -= 1
     }
-    player.cooldown := for^ weapon: when^ 1: f32^(0.42) when^ 2: f32^(0.28) when^ 3: f32^(0.85) other^: f32^(0.10);
+    player.cooldown := for^weapon: when^ 1: f32^(0.42) when^ 2: f32^(0.28) when^ 3: f32^(0.85) other^: f32^(0.10);
     player.flash := 0.09
     sound(if^ weapon = 1: 2 el^ weapon = 3: 1 el^: 0;, player.pos)
-    let^ pellets:i64^ = if^ weapon = 3: 7 el^: 1;
-    for^ pellet from^ 1 to^ pellets { fire_pellet(weapon) }
+    let^pellets = if^weapon = 3: 7 el^: 1;
+    for^pellet from^ 1 to^pellets { fire_pellet(weapon) }
     # Noise wakes nearby monsters only through open sight lines.
-    for^ i from^ 0 to^ actors.len - 1 {
-        let^ a = actors[i]
-        if^ monster(a.kind) and^ distance2(a.pos, player.pos) < 1000.0 and^
-            visible(a.pos, a.z + 32.0, player.pos, player.z + 32.0) {
+    for^i from^ 0 to^actors.len - 1 {
+        let^a = actors[i]
+        if^monster(a.kind) and^distance(a.pos, player.pos) < 1000.0 and^visible(a.pos, a.z + 32.0, player.pos, player.z + 32.0) {
             actors[i].awake := true^
         }
     }
 }
-let^ fire_pellet = p^ weapon:i64^ {
-    let^ spread = if^ weapon = 3: f32^(random_int(101) - 50) * 0.0015
-                  el^ weapon = 4: f32^(random_int(101) - 50) * 0.0005 el^: 0.0;
-    let^ direction = F2{x=math.cos(player.yaw + spread), y=math.sin(player.yaw + spread)}
-    var^ nearest = if^ weapon = 1: f32^(70.0) el^: 1800.0;
-    var^ target:i64^ = -1
-    for^ i from^ 0 to^ actors.len - 1 {
-        let^ a = actors[i]
-        if^ !a.alive or^ a.health <= 0 { continue^ }
-        let^ delta = a.pos - player.pos
-        let^ along = dot2(delta, direction)
-        let^ across = math.abs(cross2(direction, delta))
-        if^ along <= 0.0 or^ along >= nearest or^ across > a.radius { continue^ }
+
+let^fire_pellet = p^weapon:i64^{
+    let^spread = if^ weapon = 3: f32^(random_int(101) - 50) * 0.0015
+                 el^ weapon = 4: f32^(random_int(101) - 50) * 0.0005 el^: 0.0;
+    let^direction = F2{x=math.cos(player.yaw + spread), y=math.sin(player.yaw + spread)}
+    var^nearest = if^weapon = 1: f32^(70.0) el^: 1800.0;
+    var^target:i64^ = -1
+    for^i from^ 0 to^ actors.len - 1 {
+        let^a = actors[i]
+        if^!a.alive or^ a.health <= 0 { continue^ }
+        let^delta = a.pos - player.pos
+        let^along = dot(delta, direction)
+        let^across = math.abs(direction cross^ delta)
+        if^along <= 0.0 or^ along >= nearest or^ across > a.radius { continue^ }
         # Classic horizontal aiming, with a modest automatic vertical aim for
         # stairs; the ray through the opening must still be clear.
-        if^ math.abs(a.z + 28.0 - (player.z + 41.0)) > 40.0 + along * 0.5 { continue^ }
-        if^ visible(player.pos, player.z + 41.0, a.pos, a.z + 28.0) {
+        if^math.abs(a.z + 28.0 - (player.z + 41.0)) > 40.0 + along * 0.5 { continue^ }
+        if^visible(player.pos, player.z + 41.0, a.pos, a.z + 28.0) {
             target := i
             nearest := along
         }
     }
-    if^ target >= 0 {
-        let^ damage:i64^ = if^ weapon = 1: 12 + random_int(12) el^: 5 * (1 + random_int(3));
+    if^target >= 0 {
+        let^damage:i64^ = if^ weapon = 1: 12 + random_int(12) el^: 5 * (1 + random_int(3));
         damage_actor(target, damage)
     }
 }
-let^ launch_fireball = p^ a:Actor {
+
+let^launch_fireball = p^a:Actor {
     let^ delta = player.pos - a.pos
-    let^ dist = fmax(1.0, length2(delta))
+    let^ dist = fmax(1.0, delta.length())
     fireballs[next_fireball] := Fireball{pos=a.pos, z=a.z + 32.0, velocity=delta * (280.0 / dist),
         vz=(player.z + 30.0 - a.z - 32.0) * 280.0 / dist, life=5.0}
     next_fireball := (next_fireball + 1) % fireballs.len
     sound(9, a.pos)
 }
+
 # A barrel's blast, once, as it starts to burst.
-let^ explode = p^ i:i64^ {
-    let^ a = actors[i]
+let^explode = p^i:i64^{
+    let^a = actors[i]
     sound(10, a.pos)
-    let^ dist = distance2(a.pos, player.pos)
-    if^ dist < 160.0 and^ visible(a.pos, a.z + 24.0, player.pos, player.z + 32.0) {
+    let^dist = distance(a.pos, player.pos)
+    if^dist < 160.0 and^visible(a.pos, a.z + 24.0, player.pos, player.z + 32.0) {
         hurt_player(imax(0, i64^(120.0 - dist * 0.7)))
     }
-    for^ j from^ 0 to^ actors.len - 1 {
-        let^ other = actors[j]
-        let^ d = distance2(a.pos, other.pos)
-        if^ j != i and^ other.health > 0 and^ d < 160.0 and^ visible(a.pos, a.z + 24.0, other.pos, other.z + 28.0) {
+    for^j from^ 0 to^actors.len - 1 {
+        let^other = actors[j]
+        let^d = distance(a.pos, other.pos)
+        if^j != i and^ other.health > 0 and^ d < 160.0 and^visible(a.pos, a.z + 24.0, other.pos, other.z + 28.0) {
             damage_actor(j, imax(0, i64^(120.0 - d * 0.7)))
         }
     }
 }
-let^ update_dying = p^ i:i64^ {
-    let^ old = actors[i].death
+
+let^update_dying = p^i:i64^{
+    let^old = actors[i].death
     actors[i].death += STEP
-    let^ a = actors[i]
-    if^ a.kind = 2035 and^ old < 0.15 and^ a.death >= 0.15 { explode(i) }
-    if^ a.kind = 2035 and^ a.death > 0.65 { actors[i].alive := false^ }
+    let^a = actors[i]
+    if^a.kind = 2035 and^ old < 0.15 and^ a.death >= 0.15 { explode(i) }
+    if^a.kind = 2035 and^ a.death > 0.65 { actors[i].alive := false^ }
     # Guards drop a clip or a shotgun once their corpse settles, as a separate
     # actor so that the corpse stays visible.
-    if^ old < 0.8 and^ a.death >= 0.8 and^ (a.kind = 3004 or^ a.kind = 9) and^ actors.len < 512 {
-        let^ kind:i64^ = if^ a.kind = 9: 2001 el^: 2007;
-        actors.push(Actor{pos=a.pos, z=a.z, kind=kind, picture=find_picture(thing_picture(kind).bytes, 0)})
+    if^old < 0.8 and^ a.death >= 0.8 and^ (a.kind = 3004 or^ a.kind = 9) and^ actors.len < 512 {
+        let^kind:i64^ = if^ a.kind = 9: 2001 el^: 2007;
+        actors.push(Actor{
+            pos = a.pos, z = a.z, kind = kind, picture = find_picture(thing_picture(kind).bytes, 0)
+        })
     }
 }
-let^ attack = p^ i:i64^, dist:f32^ {
-    let^ a = actors[i]
-    let^ melee = a.kind = 3002 or^ a.kind = 58
-    if^ melee and^ dist >= a.radius + 38.0 { return^ }
+
+let^attack = p^i:i64^, dist:f32^{
+    let^a = actors[i]
+    let^melee = a.kind = 3002 or^a.kind = 58
+    if^melee and^ dist >= a.radius + 38.0 { return^ }
     actors[i].attacking := 0.28
     actors[i].timer := 1.0 + f32^(random_int(100)) * 0.012
-    if^ a.kind = 3001 and^ dist > 75.0 {
+    if^a.kind = 3001 and^ dist > 75.0 {
         launch_fireball(a)
-    elif^ melee or^ dist < 75.0:
+    elif^melee or^ dist < 75.0:
         hurt_player(5 + random_int(12))
     else^:
         sound(0, a.pos)
-        if^ random_int(100) < imax(20, 85 - i64^(dist * 0.08)) {
+        if^random_int(100) < imax(20, 85 - i64^(dist * 0.08)) {
             hurt_player(if^ a.kind = 9: 6 + random_int(10) el^: 3 + random_int(7);)
         }
     }
 }
-let^ update_monster = p^ i:i64^ {
-    let^ a = ref^ actors[i]
+
+let^update_monster = p^i:i64^{
+    let^a = ref^ actors[i]
     a.pain := fmax(0.0, a.pain - STEP)
     a.attacking := fmax(0.0, a.attacking - STEP)
     a.timer -= STEP
-    let^ delta = player.pos - a.pos
-    let^ dist = length2(delta)
-    let^ sees = player.health > 0 and^ dist < 1500.0 and^ visible(a.pos, a.z + 36.0, player.pos, player.z + 32.0)
-    if^ sees { a.awake := true^ }
-    if^ !a.awake or^ player.health <= 0 or^ a.pain > 0.0 { return^ }
-    if^ sees and^ a.timer <= 0.0 and^ (dist < 650.0 or^ dist < a.radius + 38.0) { attack(i, dist) }
-    let^ b = actors[i]
-    if^ b.attacking > 0.0 or^ dist < 1.0 { return^ }
-    let^ speed = if^ b.kind = 3002 or^ b.kind = 58: f32^(105.0) el^: 58.0;
+    let^delta = player.pos - a.pos
+    let^dist = delta.length()
+    let^sees = player.health > 0 and^dist < 1500.0 and^visible(a.pos, a.z + 36.0, player.pos, player.z + 32.0)
+    if^sees { a.awake := true^ }
+    if^!a.awake or^player.health <= 0 or^a.pain > 0.0 { return^ }
+    if^sees and^a.timer <= 0.0 and^(dist < 650.0 or^dist < a.radius + 38.0) { attack(i, dist) }
+    let^b = actors[i]
+    if^b.attacking > 0.0 or^dist < 1.0 { return^ }
+    let^ speed = if^ b.kind = 3002 or^b.kind = 58: f32^(105.0) el^: 58.0;
     let^ moved = slide(b.pos, b.z, delta * (speed * STEP / dist), b.radius, i, true^)
     actors[i].pos := moved
     actors[i].z := fmax(b.z, sectors[sector_at(moved)].floor)
 }
-let^ update_fireballs = p^ {
-    for^ i from^ 0 to^ fireballs.len - 1 {
-        let^ f = fireballs[i]
-        if^ f.life <= 0.0 { continue^ }
-        let^ next = f.pos + f.velocity * STEP
-        let^ next_z = f.z + f.vz * STEP
-        if^ !visible(f.pos, f.z, next, next_z) {
+
+let^update_fireballs = p^{
+    for^i from^0 to^fireballs.len - 1 {
+        let^f = fireballs[i]
+        if^f.life <= 0.0 { continue^ }
+        let^next = f.pos + f.velocity * STEP
+        let^next_z = f.z + f.vz * STEP
+        if^!visible(f.pos, f.z, next, next_z) {
             fireballs[i].life := 0.0
             continue^
         }
-        fireballs[i] := Fireball{pos=next, z=next_z, velocity=f.velocity, vz=f.vz, life=f.life - STEP}
-        if^ distance2(next, player.pos) < 22.0 and^ next_z > player.z and^ next_z < player.z + PLAYER_HEIGHT {
+        fireballs[i] := Fireball{ pos = next, z = next_z, velocity = f.velocity, vz = f.vz, life = f.life - STEP }
+        if^distance(next, player.pos) < 22.0 and^next_z > player.z and^next_z < player.z + PLAYER_HEIGHT {
             hurt_player(10 + random_int(15))
             fireballs[i].life := 0.0
         }
     }
 }
-let^ update_actors = p^ {
-    for^ i from^ 0 to^ actors.len - 1 {
-        if^ !actors[i].alive { continue^ }
-        if^ actors[i].death > 0.0 {
+
+let^update_actors = p^{
+    for^i from^0 to^actors.len - 1 {
+        if^!actors[i].alive { continue^ }
+        if^actors[i].death > 0.0 {
             update_dying(i)
             continue^
         }
-        let^ floor_z = sectors[sector_at(actors[i].pos)].floor
+        let^floor_z = sectors[sector_at(actors[i].pos)].floor
         actors[i].z := fmax(floor_z, actors[i].z - 220.0 * STEP)
-        if^ monster(actors[i].kind) { update_monster(i) }
+        if^monster(actors[i].kind) { update_monster(i) }
     }
     update_fireballs()
 }
 
 # --- meshes: world units become (x, height, -y) ----------------------------------
 
-def^ Vertex {
+def^Vertex {
     self^{ x:f32^ = 0.0, y:f32^ = 0.0, z:f32^ = 0.0, u:f32^ = 0.0, v:f32^ = 0.0,
            rx:f32^ = 0.0, ry:f32^ = 0.0, rw:f32^ = 0.0, rh:f32^ = 0.0, light:f32^ = 1.0 }
 }
 
-let^ vertex = f^ p:F2, height:f32^, u:f32^, v:f32^, picture:i64^, light:f32^ -> Vertex {
+let^vertex = f^p:F2, height:f32^, u:f32^, v:f32^, picture:i64^, light:f32^ -> Vertex {
     let^ r = pictures[picture]
     return^ Vertex{x=p.x, y=height, z=-p.y, u=u, v=v, rx=f32^(r.x), ry=f32^(r.y), rw=f32^(r.w),
         rh=f32^(r.h), light=light}
 }
-let^ lighting = f^ sector:i64^ -> f32^ {
-    let^ s = sectors[sector]
-    if^ s.special = 1 and^ (i64^(game_time * 9.0) + sector * 7) % 11 < 3 { return^ s.light * 0.4 }
-    if^ s.special = 12 and^ game_time - math.floor(game_time) < 0.15 { return^ s.light * 0.35 }
-    return^ fmax(0.18, s.light)
+
+let^lighting = f^sector:i64^ -> f32^{
+    let^s = sectors[sector]
+    if^s.special = 1 and^ (i64^(game_time * 9.0) + sector * 7) % 11 < 3 { return^ s.light * 0.4 }
+    if^s.special = 12 and^ game_time - math.floor(game_time) < 0.15 { return^ s.light * 0.35 }
+    return^fmax(0.18, s.light)
 }
+
 # Liquids cycle through their numbered frames.
-let^ animated_flat = f^ id:i64^ -> i64^ {
-    if^ id < 0 { return^ sky_picture }
-    let^ name = pictures[id].name
-    let^ frame = i64^(game_time * 4.0)
-    if^ name.len = 7 and^ same(name[0 .. 6], "NUKAGE".bytes) {
-        let^ next = numbered("NUKAGE", 1 + frame % 3, 1)
+let^animated_flat = f^id:i64^ -> i64^ {
+    if^id < 0 { return^ sky_picture }
+    let^name = pictures[id].name
+    let^frame = i64^(game_time * 4.0)
+    if^name.len = 7 and^same(name[0 .. 6], "NUKAGE".bytes) {
+        let^next = numbered("NUKAGE", 1 + frame % 3, 1)
         return^ find_picture(next[..], 2)
     }
-    if^ name.len = 7 and^ same(name[0 .. 6], "FWATER".bytes) {
-        let^ next = numbered("FWATER", 1 + frame % 4, 1)
-        return^ find_picture(next[..], 2)
-    }
-    return^ id
-}
-# A used switch shows its SW2 texture.
-let^ switch_texture = f^ id:i64^, activated:bool^ -> i64^ {
-    if^ id < 0 or^ !activated { return^ id }
-    let^ name = pictures[id].name
-    if^ name.len >= 3 and^ same(name[0 .. 3], "SW1".bytes) {
-        var^ on:u8^[..8] = []
-        on.append("SW2".bytes)
-        on.append(name[3 ..])
-        let^ found = find_picture(on[..], 1)
-        if^ found >= 0 { return^ found }
+    if^name.len = 7 and^same(name[0 .. 6], "FWATER".bytes) {
+        let^next = numbered("FWATER", 1 + frame % 4, 1)
+        return^find_picture(next[..], 2)
     }
     return^ id
 }
 
-let^ add_wall = p^ out:ref^ grow^ Vertex[], a:F2, b:F2, bottom:f32^, top:f32^, texture:i64^,
-                   offset:F2, anchor:f32^, light:f32^ {
-    if^ texture < 0 or^ top <= bottom { return^ }
-    let^ w = f32^(pictures[texture].w)
-    let^ h = f32^(pictures[texture].h)
-    let^ u0 = offset.x / w
-    let^ u1 = (offset.x + distance2(a, b)) / w
-    let^ v0 = (anchor - top + offset.y) / h
-    let^ v1 = (anchor - bottom + offset.y) / h
-    let^ c0 = vertex(a, bottom, u0, v1, texture, light)
-    let^ c1 = vertex(b, bottom, u1, v1, texture, light)
-    let^ c2 = vertex(b, top, u1, v0, texture, light)
-    let^ c3 = vertex(a, top, u0, v0, texture, light)
+# A used switch shows its SW2 texture.
+let^switch_texture = f^id:i64^, activated:bool^ -> i64^ {
+    if^id < 0 or^ !activated { return^ id }
+    let^name = pictures[id].name
+    if^name.len >= 3 and^same(name[0 .. 3], "SW1".bytes) {
+        var^on:u8^[..8] = []
+        on.append("SW2".bytes)
+        on.append(name[3 ..])
+        let^found = find_picture(on[..], 1)
+        if^found >= 0 { return^ found }
+    }
+    return^id
+}
+
+let^add_wall = p^ out:ref^ grow^ Vertex[], a:F2, b:F2, bottom:f32^, top:f32^, texture:i64^,
+                  offset:F2, anchor:f32^, light:f32^ {
+    if^texture < 0 or^ top <= bottom { return^ }
+    let^w = f32^(pictures[texture].w)
+    let^h = f32^(pictures[texture].h)
+    let^u0 = offset.x / w
+    let^u1 = (offset.x + distance(a, b)) / w
+    let^v0 = (anchor - top + offset.y) / h
+    let^v1 = (anchor - bottom + offset.y) / h
+    let^c0 = vertex(a, bottom, u0, v1, texture, light)
+    let^c1 = vertex(b, bottom, u1, v1, texture, light)
+    let^c2 = vertex(b, top, u1, v0, texture, light)
+    let^c3 = vertex(a, top, u0, v0, texture, light)
     out.push(c0) out.push(c1) out.push(c2)
     out.push(c0) out.push(c2) out.push(c3)
 }
-let^ world_mesh = p^ out:ref^ grow^ Vertex[] {
+
+let^world_mesh = p^ out:ref^ grow^ Vertex[] {
     for^ t from^ 0 to^ floor_triangles.len - 1 {
-        let^ triangle = floor_triangles[t]
-        let^ s = sectors[triangle.sector]
-        for^ plane from^ 0 to^ 1 {
-            let^ height = if^ plane = 0: s.floor el^: s.ceiling;
-            let^ original = if^ plane = 0: s.floor_pic el^: s.ceiling_pic;
-            let^ texture = animated_flat(original);
-            let^ shade = if^ original < 0: f32^(-1.0) el^: lighting(triangle.sector);
+        let^triangle = floor_triangles[t]
+        let^s = sectors[triangle.sector]
+        for^plane from^ 0 to^ 1 {
+            let^height = if^ plane = 0: s.floor el^: s.ceiling;
+            let^original = if^ plane = 0: s.floor_pic el^: s.ceiling_pic;
+            let^texture = animated_flat(original);
+            let^shade = if^ original < 0: f32^(-1.0) el^: lighting(triangle.sector);
             out.push(vertex(triangle.a, height, triangle.a.x / 64.0, triangle.a.y / 64.0, texture, shade))
             out.push(vertex(triangle.b, height, triangle.b.x / 64.0, triangle.b.y / 64.0, texture, shade))
             out.push(vertex(triangle.c, height, triangle.c.x / 64.0, triangle.c.y / 64.0, texture, shade))
         }
     }
-    for^ l from^ 0 to^ lines.len - 1 {
-        let^ line = lines[l]
-        for^ face from^ 0 to^ 1 {
-            let^ side_id = if^ face = 0: line.front el^: line.back;
-            let^ other_id = if^ face = 0: line.back el^: line.front;
-            if^ side_id < 0 { continue^ }
-            var^ side = sides[side_id]
+    for^l from^0 to^lines.len - 1 {
+        let^line = lines[l]
+        for^face from^0 to^1 {
+            let^side_id = if^ face = 0: line.front el^: line.back;
+            let^other_id = if^ face = 0: line.back el^: line.front;
+            if^side_id < 0 { continue^ }
+            var^side = sides[side_id]
             side.upper := switch_texture(side.upper, line.activated)
             side.lower := switch_texture(side.lower, line.activated)
             side.middle := switch_texture(side.middle, line.activated)
-            let^ s = sectors[side.sector]
-            let^ a = if^ face = 0: line.a el^: line.b;
-            let^ b = if^ face = 0: line.b el^: line.a;
+            let^s = sectors[side.sector]
+            let^a = if^ face = 0: line.a el^: line.b;
+            let^b = if^ face = 0: line.b el^: line.a;
             # Only the side facing the viewer contributes; this also keeps two
             # coplanar middle textures from fighting for the depth buffer.
-            if^ cross2(b - a, player.pos - a) > 0.0 { continue^ }
-            let^ shade = lighting(side.sector) * (if^ math.abs(a.x - b.x) < 0.1: 0.88 el^: 1.0;)
-            if^ other_id < 0 {
-                if^ side.middle < 0 { continue^ }
-                let^ anchor = if^ (line.flags bitand^ 16) != 0: s.floor + f32^(pictures[side.middle].h) el^: s.ceiling;
+            if^((b - a)cross^(player.pos - a)) > 0.0 { continue^ }
+            let^shade = lighting(side.sector) * (if^ math.abs(a.x - b.x) < 0.1: 0.88 el^: 1.0;)
+            if^other_id < 0 {
+                if^side.middle < 0 { continue^ }
+                let^anchor = if^(line.flags bitand^ 16) != 0: s.floor + f32^(pictures[side.middle].h) el^: s.ceiling;
                 add_wall(out, a, b, s.floor, s.ceiling, side.middle, side.offset, anchor, shade)
                 continue^
             }
-            let^ other = sectors[sides[other_id].sector]
-            if^ side.upper >= 0 and^ !(s.ceiling_pic < 0 and^ other.ceiling_pic < 0) {
-                let^ anchor = if^ (line.flags bitand^ 8) != 0: s.ceiling el^: other.ceiling + f32^(pictures[side.upper].h);
+            let^other = sectors[sides[other_id].sector]
+            if^side.upper >= 0 and^ !(s.ceiling_pic < 0 and^ other.ceiling_pic < 0) {
+                let^anchor = if^(line.flags bitand^ 8) != 0: s.ceiling el^: other.ceiling + f32^(pictures[side.upper].h);
                 add_wall(out, a, b, fmax(s.floor, other.ceiling), s.ceiling, side.upper, side.offset, anchor, shade)
             }
-            if^ side.lower >= 0 {
-                let^ anchor = if^ (line.flags bitand^ 16) != 0: s.ceiling el^: other.floor;
+            if^side.lower >= 0 {
+                let^anchor = if^(line.flags bitand^ 16) != 0: s.ceiling el^: other.floor;
                 add_wall(out, a, b, s.floor, fmin(s.ceiling, other.floor), side.lower, side.offset, anchor, shade)
             }
-            if^ side.middle >= 0 {
-                let^ bottom = fmax(s.floor, other.floor)
-                let^ top = fmin(s.ceiling, other.ceiling)
-                let^ height = f32^(pictures[side.middle].h)
-                let^ anchor = if^ (line.flags bitand^ 16) != 0: bottom + height el^: top;
+            if^side.middle >= 0 {
+                let^bottom = fmax(s.floor, other.floor)
+                let^top = fmin(s.ceiling, other.ceiling)
+                let^height = f32^(pictures[side.middle].h)
+                let^anchor = if^(line.flags bitand^ 16) != 0: bottom + height el^: top;
                 add_wall(out, a, b, fmax(bottom, anchor + side.offset.y - height),
                     fmin(top, anchor + side.offset.y), side.middle, side.offset, anchor, shade)
             }
@@ -1279,54 +1360,57 @@ let^ world_mesh = p^ out:ref^ grow^ Vertex[] {
 }
 
 # The picture of an animation frame: prefix, frame letter, rotation 0 or 1.
-let^ frame_picture = f^ prefix:string^, frame:i64^ -> i64^ {
-    var^ name:u8^[..8] = []
+let^frame_picture = f^prefix:string^, frame:i64^ -> i64^{
+    var^name:u8^[..8] = []
     name.append(prefix.bytes)
     name.push(u8^(65 + frame))
     name.push(48)
-    var^ id = find_picture(name[..], 0)
-    if^ id < 0 {
+    var^id = find_picture(name[..], 0)
+    if^id < 0 {
         name[name.len - 1] := 49
         id := find_picture(name[..], 0)
     }
     require(id >= 0, "mini doom: missing sprite frame")
     return^ id
 }
-let^ actor_picture = f^ a:Actor -> i64^ {
-    if^ a.kind = 2035 {
-        if^ a.death > 0.0 { return^ frame_picture("BEXP", imin(4, i64^(a.death * 8.0))) }
-        return^ frame_picture("BAR1", i64^(game_time * 4.0) % 2)
+
+let^actor_picture = f^a:Actor -> i64^{
+    if^a.kind = 2035 {
+        if^a.death > 0.0 { return^ frame_picture("BEXP", imin(4, i64^(a.death * 8.0))) }
+        return^frame_picture("BAR1", i64^(game_time * 4.0) % 2)
     }
-    if^ !monster(a.kind) { return^ a.picture }
-    let^ prefix = monster_prefix(a.kind)
-    if^ a.death > 0.0 {
-        let^ first:i64^ = if^ a.kind = 3001 or^ a.kind = 3002 or^ a.kind = 58: 8 el^: 7;
-        let^ last:i64^ = if^ a.kind = 3002 or^ a.kind = 58: 5 el^: 4;
-        return^ frame_picture(prefix, first + imin(last, i64^(a.death * 7.0)))
+    if^!monster(a.kind) { return^ a.picture }
+    let^prefix = monster_prefix(a.kind)
+    if^a.death > 0.0 {
+        let^first:i64^ = if^ a.kind = 3001 or^ a.kind = 3002 or^ a.kind = 58: 8 el^: 7;
+        let^last:i64^ = if^ a.kind = 3002 or^ a.kind = 58: 5 el^: 4;
+        return^frame_picture(prefix, first + imin(last, i64^(a.death * 7.0)))
     }
-    if^ a.pain > 0.0 { return^ frame_picture(prefix, if^ a.kind = 3004 or^ a.kind = 9: 6 el^: 7;) }
-    if^ a.attacking > 0.0 { return^ frame_picture(prefix, 5) }
-    return^ frame_picture(prefix, if^ a.awake: i64^(game_time * 8.0) % 4 el^: 0;)
+    if^a.pain > 0.0 { return^ frame_picture(prefix, if^ a.kind = 3004 or^ a.kind = 9: 6 el^: 7;) }
+    if^a.attacking > 0.0 { return^ frame_picture(prefix, 5) }
+    return^frame_picture(prefix, if^ a.awake: i64^(game_time * 8.0) % 4 el^: 0;)
 }
-let^ billboard = p^ out:ref^ grow^ Vertex[], pos:F2, bottom:f32^, id:i64^, shade:f32^ {
-    let^ p = pictures[id]
-    let^ right = F2{x=math.sin(player.yaw), y=-math.cos(player.yaw)}
+
+let^billboard = p^out:ref^ grow^ Vertex[], pos:F2, bottom:f32^, id:i64^, shade:f32^ {
+    let^p = pictures[id]
+    let^right = F2{x=math.sin(player.yaw), y=-math.cos(player.yaw)}
     # The WAD's anchor keeps different animation frames registered.
-    let^ a = pos - right * f32^(p.left)
-    let^ b = a + right * f32^(p.w)
-    let^ top = bottom + f32^(p.top)
+    let^a = pos - right * f32^(p.left)
+    let^b = a + right * f32^(p.w)
+    let^top = bottom + f32^(p.top)
     add_wall(out, a, b, top - f32^(p.h), top, id, F2{}, top, shade)
 }
-let^ sprite_mesh = p^ out:ref^ grow^ Vertex[] {
-    for^ i from^ 0 to^ actors.len - 1 {
-        let^ a = actors[i]
-        if^ !a.alive { continue^ }
-        let^ shade = if^ a.kind = 2035 and^ a.death > 0.0: f32^(1.0) el^: lighting(sector_at(a.pos));
+
+let^sprite_mesh = p^out:ref^grow^Vertex[] {
+    for^i from^0 to^actors.len - 1 {
+        let^a = actors[i]
+        if^!a.alive { continue^ }
+        let^shade = if^a.kind = 2035 and^a.death > 0.0: f32^(1.0) el^: lighting(sector_at(a.pos));
         billboard(out, a.pos, a.z, actor_picture(a), shade)
     }
-    for^ i from^ 0 to^ fireballs.len - 1 {
-        let^ f = fireballs[i]
-        if^ f.life > 0.0 {
+    for^i from^0 to^fireballs.len - 1 {
+        let^f = fireballs[i]
+        if^f.life > 0.0 {
             billboard(out, f.pos, f.z - 8.0, frame_picture("BAL1", i64^(game_time * 8.0) % 2), 1.0)
         }
     }
@@ -1334,148 +1418,161 @@ let^ sprite_mesh = p^ out:ref^ grow^ Vertex[] {
 
 # --- a small HUD in the WAD's own font and weapon patches ------------------------------
 
-def^ HudVertex {
+def^HudVertex {
     self^{ x:f32^ = 0.0, y:f32^ = 0.0, u:f32^ = 0.0, v:f32^ = 0.0, rx:f32^ = 0.0, ry:f32^ = 0.0,
            rw:f32^ = 0.0, rh:f32^ = 0.0, r:f32^ = 1.0, g:f32^ = 1.0, b:f32^ = 1.0, a:f32^ = 1.0 }
 }
-def^ Color { self^{ r:f32^ = 1.0, g:f32^ = 1.0, b:f32^ = 1.0, a:f32^ = 1.0 } }
-let^ WHITE = Color{}
 
-let^ hud_point = f^ x:f32^, y:f32^, u:f32^, v:f32^, id:i64^, color:Color -> HudVertex {
+def^Color { self^{ r:f32^ = 1.0, g:f32^ = 1.0, b:f32^ = 1.0, a:f32^ = 1.0 } }
+
+let^WHITE = Color{}
+
+let^hud_point = f^ x:f32^, y:f32^, u:f32^, v:f32^, id:i64^, color:Color -> HudVertex {
     let^ p = pictures[id]
     return^ HudVertex{x=x, y=y, u=u, v=v, rx=f32^(p.x), ry=f32^(p.y), rw=f32^(p.w), rh=f32^(p.h),
         r=color.r, g=color.g, b=color.b, a=color.a}
 }
-let^ hud_quad = p^ out:ref^ grow^ HudVertex[], x:f32^, y:f32^, w:f32^, h:f32^, id:i64^, color:Color {
-    let^ c0 = hud_point(x, y, 0.0, 0.0, id, color)
-    let^ c1 = hud_point(x + w, y, 1.0, 0.0, id, color)
-    let^ c2 = hud_point(x + w, y + h, 1.0, 1.0, id, color)
-    let^ c3 = hud_point(x, y + h, 0.0, 1.0, id, color)
+
+let^hud_quad = p^ out:ref^ grow^ HudVertex[], x:f32^, y:f32^, w:f32^, h:f32^, id:i64^, color:Color {
+    let^c0 = hud_point(x, y, 0.0, 0.0, id, color)
+    let^c1 = hud_point(x + w, y, 1.0, 0.0, id, color)
+    let^c2 = hud_point(x + w, y + h, 1.0, 1.0, id, color)
+    let^c3 = hud_point(x, y + h, 0.0, 1.0, id, color)
     out.push(c0) out.push(c1) out.push(c2)
     out.push(c0) out.push(c2) out.push(c3)
 }
-let^ hud_picture = p^ out:ref^ grow^ HudVertex[], x:f32^, y:f32^, id:i64^ {
+
+let^hud_picture = p^ out:ref^ grow^ HudVertex[], x:f32^, y:f32^, id:i64^ {
     hud_quad(out, x, y, f32^(pictures[id].w), f32^(pictures[id].h), id, WHITE)
 }
-let^ text_width = f^ words:u8^[:] -> f32^ {
-    var^ width:f32^ = 0.0
-    for^ i from^ 0 to^ words.len - 1 {
-        let^ c = i64^(words[i])
-        width += if^ c <= 32 or^ c >= 96: f32^(4.0) el^: f32^(pictures[font[c]].w) + 1.0;
+
+let^text_width = f^ words:u8^[:] -> f32^ {
+    var^width:f32^ = 0.0
+    for^i from^0 to^words.len - 1 {
+        let^c = i64^(words[i])
+        width += if^c <= 32 or^c >= 96: f32^(4.0) el^: f32^(pictures[font[c]].w) + 1.0;
     }
     return^ width
 }
-let^ text = p^ out:ref^ grow^ HudVertex[], x:f32^, y:f32^, words:u8^[:], color:Color {
-    var^ cursor = x
-    for^ i from^ 0 to^ words.len - 1 {
-        let^ c = i64^(words[i])
-        if^ c <= 32 or^ c >= 96 {
+
+let^text = p^out:ref^grow^HudVertex[], x:f32^, y:f32^, words:u8^[:], color:Color {
+    var^cursor = x
+    for^i from^0 to^words.len - 1 {
+        let^c = i64^(words[i])
+        if^c <= 32 or^ c >= 96 {
             cursor += 4.0
             continue^
         }
-        let^ id = font[c]
-        let^ w = f32^(pictures[id].w)
-        let^ h = f32^(pictures[id].h)
+        let^id = font[c]
+        let^w = f32^(pictures[id].w)
+        let^h = f32^(pictures[id].h)
         hud_quad(out, cursor + 1.0, y + 1.0, w, h, id, Color{r=0.0, g=0.0, b=0.0, a=color.a})
         hud_quad(out, cursor, y, w, h, id, color)
         cursor += w + 1.0
     }
 }
-let^ centered = p^ out:ref^ grow^ HudVertex[], width:f32^, y:f32^, words:u8^[:] {
+
+let^centered = p^out:ref^grow^HudVertex[], width:f32^, y:f32^, words:u8^[:] {
     text(out, (width - text_width(words)) * 0.5, y, words, WHITE)
 }
-let^ map_line = p^ out:ref^ grow^ HudVertex[], a:F2, b:F2, color:Color {
-    let^ d = b - a
-    let^ normal = F2{x=-d.y, y=d.x} * (0.45 / fmax(0.1, length2(d)))
-    let^ c0 = hud_point(a.x - normal.x, a.y - normal.y, 0.0, 0.0, 0, color)
-    let^ c1 = hud_point(b.x - normal.x, b.y - normal.y, 0.0, 0.0, 0, color)
-    let^ c2 = hud_point(b.x + normal.x, b.y + normal.y, 0.0, 0.0, 0, color)
-    let^ c3 = hud_point(a.x + normal.x, a.y + normal.y, 0.0, 0.0, 0, color)
+
+let^map_line = p^out:ref^grow^HudVertex[], a:F2, b:F2, color:Color {
+    let^d = b - a
+    let^normal = F2{x=-d.y, y=d.x} * (0.45 / fmax(0.1, d.length()))
+    let^c0 = hud_point(a.x - normal.x, a.y - normal.y, 0.0, 0.0, 0, color)
+    let^c1 = hud_point(b.x - normal.x, b.y - normal.y, 0.0, 0.0, 0, color)
+    let^c2 = hud_point(b.x + normal.x, b.y + normal.y, 0.0, 0.0, 0, color)
+    let^c3 = hud_point(a.x + normal.x, a.y + normal.y, 0.0, 0.0, 0, color)
     out.push(c0) out.push(c1) out.push(c2)
     out.push(c0) out.push(c2) out.push(c3)
 }
-let^ automap = p^ out:ref^ grow^ HudVertex[], screen:F2 {
-    hud_quad(out, 0.0, 0.0, screen.x, screen.y - 34.0, 0, Color{r=0.015, g=0.025, b=0.025, a=0.94})
-    let^ center = F2{x=screen.x * 0.5, y=(screen.y - 34.0) * 0.5}
-    for^ i from^ 0 to^ lines.len - 1 {
-        let^ line = lines[i]
-        let^ a = center + F2{x=(line.a.x - player.pos.x) * 0.09, y=(player.pos.y - line.a.y) * 0.09}
-        let^ b = center + F2{x=(line.b.x - player.pos.x) * 0.09, y=(player.pos.y - line.b.y) * 0.09}
-        let^ color = if^ line.special = 26: Color{r=0.2, g=0.45, b=1.0, a=1.0}
-                     el^ line.special != 0: Color{r=1.0, g=0.8, b=0.25, a=1.0}
-                     el^ line.back < 0: Color{r=0.8, g=0.23, b=0.12, a=1.0}
-                     el^: Color{r=0.3, g=0.33, b=0.3, a=0.6};
+
+let^automap = p^out:ref^grow^HudVertex[], screen:F2 {
+    hud_quad(out, 0.0, 0.0, screen.x, screen.y - 34.0, 0, Color{ r=0.015, g=0.025, b=0.025, a=0.94 })
+    let^center = F2{ x=screen.x * 0.5, y=(screen.y - 34.0) * 0.5 }
+    for^i from^0 to^lines.len - 1 {
+        let^line = lines[i]
+        let^a = center + F2{x=(line.a.x - player.pos.x) * 0.09, y=(player.pos.y - line.a.y) * 0.09}
+        let^b = center + F2{x=(line.b.x - player.pos.x) * 0.09, y=(player.pos.y - line.b.y) * 0.09}
+        let^color = if^ line.special = 26: Color{r=0.2, g=0.45, b=1.0, a=1.0}
+                    el^ line.special != 0: Color{r=1.0, g=0.8, b=0.25, a=1.0}
+                    el^ line.back < 0: Color{r=0.8, g=0.23, b=0.12, a=1.0}
+                    el^: Color{r=0.3, g=0.33, b=0.3, a=0.6};
         map_line(out, a, b, color)
     }
-    let^ forward = F2{x=math.cos(player.yaw), y=-math.sin(player.yaw)}
-    let^ right = F2{x=-forward.y, y=forward.x}
-    let^ nose = center + forward * 6.0
+    let^forward = F2{x=math.cos(player.yaw), y=-math.sin(player.yaw)}
+    let^right = F2{x=-forward.y, y=forward.x}
+    let^nose = center + forward * 6.0
     map_line(out, center - right * 4.0, nose, WHITE)
     map_line(out, center + right * 4.0, nose, WHITE)
 }
-let^ draw_weapon = p^ out:ref^ grow^ HudVertex[], center:f32^, bar_y:f32^ {
-    let^ prefix = for^ player.weapon: when^ 1: "PUNG" when^ 2: "PISG" when^ 3: "SHTG" other^: "CHGG";
-    let^ frame:i64^ = if^ player.weapon = 3 and^ player.cooldown > 0.12: imin(3, 1 + i64^((0.85 - player.cooldown) * 4.0))
-                 el^ player.cooldown > 0.12 and^ player.weapon != 4: 1 el^: 0;
+
+let^draw_weapon = p^out:ref^grow^HudVertex[], center:f32^, bar_y:f32^ {
+    let^prefix = for^player.weapon: when^1: "PUNG" when^2: "PISG" when^3: "SHTG" other^: "CHGG";
+    let^frame:i64^ = if^ player.weapon = 3 and^ player.cooldown > 0.12: imin(3, 1 + i64^((0.85 - player.cooldown) * 4.0))
+                     el^ player.cooldown > 0.12 and^ player.weapon != 4: 1 el^: 0;
     let^ id = frame_picture(prefix, frame)
     let^ bob = math.sin(player.bob) * 1.4
     hud_picture(out, center - 160.0 - f32^(pictures[id].left) + bob,
-        bar_y - 168.0 - f32^(pictures[id].top) + math.abs(bob), id)
-    if^ player.flash > 0.0 and^ player.weapon != 1 {
-        let^ flash = frame_picture(if^ player.weapon = 3: "SHTF" el^ player.weapon = 4: "CHGF" el^: "PISF";, 0)
+                     bar_y - 168.0 - f32^(pictures[id].top) + math.abs(bob), id)
+    if^player.flash > 0.0 and^ player.weapon != 1 {
+        let^flash = frame_picture(if^ player.weapon = 3: "SHTF" el^ player.weapon = 4: "CHGF" el^: "PISF";, 0)
         hud_picture(out, center - 160.0 - f32^(pictures[flash].left) + bob,
             bar_y - 168.0 - f32^(pictures[flash].top) + math.abs(bob), flash)
     }
-    let^ cross = Color{r=0.9, g=0.9, b=0.7, a=0.7}
+    let^cross = Color{r=0.9, g=0.9, b=0.7, a=0.7}
     hud_quad(out, center - 2.0, bar_y * 0.5, 5.0, 1.0, 0, cross)
     hud_quad(out, center, bar_y * 0.5 - 2.0, 1.0, 5.0, 0, cross)
 }
-let^ draw_status = p^ out:ref^ grow^ HudVertex[], screen:F2, bar_y:f32^ {
-    let^ center = screen.x * 0.5
+
+let^draw_status = p^out:ref^grow^HudVertex[], screen:F2, bar_y:f32^ {
+    let^center = screen.x * 0.5
     hud_quad(out, 0.0, bar_y, screen.x, 34.0, 0, Color{r=0.12, g=0.12, b=0.13, a=1.0})
-    var^ face = numbered("STFST", imin(4, imax(0, (100 - player.health) / 20)), 1)
+    var^face = numbered("STFST", imin(4, imax(0, (100 - player.health) / 20)), 1)
     face.push(48)
-    let^ face_id = if^ player.health <= 0: find_picture("STFDEAD0".bytes, 0) el^: find_picture(face[..], 0);
+    let^face_id = if^ player.health <= 0: find_picture("STFDEAD0".bytes, 0) el^: find_picture(face[..], 0);
     hud_picture(out, center - 12.0, bar_y + 3.0, face_id)
-    let^ health = $"HEALTH {player.health}%"
+    let^health = $"HEALTH {player.health}%"
     text(out, 7.0, bar_y + 4.0, health.text().bytes, WHITE)
-    let^ armor = $"ARMOR  {player.armor}%"
+    let^armor = $"ARMOR  {player.armor}%"
     text(out, 7.0, bar_y + 18.0, armor.text().bytes, WHITE)
-    let^ ammo = if^ player.weapon = 1: $"FISTS" el^ player.weapon = 3: $"SHELLS {player.shells}" el^: $"AMMO {player.bullets}";
+    let^ammo = if^ player.weapon = 1: $"FISTS" el^ player.weapon = 3: $"SHELLS {player.shells}" el^: $"AMMO {player.bullets}";
     text(out, center + 28.0, bar_y + 4.0, ammo.text().bytes, WHITE)
-    let^ tally = $"KILLS {kills}/{total_monsters}"
+    let^tally = $"KILLS {kills}/{total_monsters}"
     text(out, center + 28.0, bar_y + 18.0, tally.text().bytes, WHITE)
-    if^ player.blue_key {
-        let^ key = find_picture("BKEYA0".bytes, 0)
+    if^player.blue_key {
+        let^key = find_picture("BKEYA0".bytes, 0)
         hud_quad(out, screen.x - 14.0, bar_y + 3.0, f32^(pictures[key].w) * 0.7, f32^(pictures[key].h) * 0.7, key, WHITE)
     }
     if^ message_time > 0.0 { centered(out, screen.x, 7.0, message[..]) }
 }
-let^ draw_overlays = p^ out:ref^ grow^ HudVertex[], screen:F2, bar_y:f32^, paused:bool^, help:bool^ {
-    if^ help {
+
+let^draw_overlays = p^out:ref^grow^HudVertex[], screen:F2, bar_y:f32^, paused:bool^, help:bool^ {
+    if^help {
         hud_quad(out, 4.0, 22.0, 266.0, 56.0, 0, Color{r=0.0, g=0.0, b=0.0, a=0.7})
         text(out, 8.0, 26.0, "WASD: WALK  SHIFT: RUN  MOUSE: TURN".bytes, WHITE)
         text(out, 8.0, 38.0, "E/SPACE: USE  CLICK/CTRL: FIRE".bytes, WHITE)
         text(out, 8.0, 50.0, "1-4: WEAPON  TAB: MAP  H: HELP".bytes, WHITE)
         text(out, 8.0, 62.0, "ESC: PAUSE  F12: SCREENSHOT".bytes, WHITE)
     }
-    if^ paused or^ player.health <= 0 or^ won {
+    if^paused or^player.health <= 0 or^won {
         hud_quad(out, 0.0, bar_y * 0.5 - 22.0, screen.x, 48.0, 0, Color{r=0.0, g=0.0, b=0.0, a=0.75})
         centered(out, screen.x, bar_y * 0.5 - 15.0,
-            (if^ won: "LEVEL COMPLETE" el^ player.health <= 0: "YOU DIED" el^: "PAUSED";).bytes)
+            (if^won: "LEVEL COMPLETE" el^player.health <= 0: "YOU DIED" el^: "PAUSED";).bytes)
         centered(out, screen.x, bar_y * 0.5,
-            (if^ won or^ player.health <= 0: "R: RESTART" el^: "ESC OR CLICK TO RESUME";).bytes)
-        if^ won {
+            (if^won or^ player.health <= 0: "R: RESTART" el^: "ESC OR CLICK TO RESUME";).bytes)
+        if^won {
             let^ found = $"SECRETS {secrets}/{total_secrets}"
             centered(out, screen.x, bar_y * 0.5 + 12.0, found.text().bytes)
         }
     }
 }
-let^ draw_hud = p^ out:ref^ grow^ HudVertex[], screen:F2, paused:bool^, help:bool^, map:bool^ {
-    let^ bar_y = screen.y - 34.0
-    if^ player.health > 0 and^ !map { draw_weapon(out, screen.x * 0.5, bar_y) }
-    if^ map { automap(out, screen) }
-    if^ player.hurt > 0.0 {
+
+let^draw_hud = p^out:ref^grow^HudVertex[], screen:F2, paused:bool^, help:bool^, map:bool^ {
+    let^bar_y = screen.y - 34.0
+    if^player.health > 0 and^ !map { draw_weapon(out, screen.x * 0.5, bar_y) }
+    if^map { automap(out, screen) }
+    if^player.hurt > 0.0 {
         hud_quad(out, 0.0, 0.0, screen.x, bar_y, 0, Color{r=0.7, g=0.0, b=0.0, a=player.hurt * 0.7})
     elif^ player.bonus > 0.0:
         hud_quad(out, 0.0, 0.0, screen.x, bar_y, 0, Color{r=1.0, g=0.8, b=0.2, a=player.bonus * 0.6})
@@ -1486,37 +1583,40 @@ let^ draw_hud = p^ out:ref^ grow^ HudVertex[], screen:F2, paused:bool^, help:boo
 
 # --- matrices for SDL_GPU clip space (y up, depth 0 to 1), column-major --------
 
-def^ M4 {
+def^M4 {
     self^{ m:f32^[16] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0] }
 }
-let^ multiply = f^ a:M4, b:M4 -> M4 {
-    var^ out = M4{}
-    for^ c from^ 0 to^ 3 {
-        for^ r from^ 0 to^ 3 {
-            var^ sum:f32^ = 0.0
-            for^ k from^ 0 to^ 3 { sum += a.m[k * 4 + r] * b.m[c * 4 + k] }
+
+let^multiply = f^a:M4, b:M4 -> M4 {
+    var^out = M4{}
+    for^c from^0 to^3 {
+        for^r from^0 to^3 {
+            var^sum:f32^ = 0.0
+            for^k from^ 0 to^ 3 { sum += a.m[k * 4 + r] * b.m[c * 4 + k] }
             out.m[c * 4 + r] := sum
         }
     }
     return^ out
 }
-let^ perspective = f^ fovy:f32^, aspect:f32^, near:f32^, far:f32^ -> M4 {
-    let^ f = 1.0 / math.tan(fovy * 0.5)
+
+let^perspective = f^fovy:f32^, aspect:f32^, near:f32^, far:f32^ -> M4 {
+    let^f = 1.0 / math.tan(fovy * 0.5)
     return^ M4{m=[f / aspect, 0.0, 0.0, 0.0, 0.0, f, 0.0, 0.0, 0.0, 0.0, far / (near - far), -1.0,
         0.0, 0.0, near * far / (near - far), 0.0]}
 }
+
 # A view looking from eye along a horizontal direction (dx, dz), y up.
-let^ look_along = f^ ex:f32^, ey:f32^, ez:f32^, dx:f32^, dz:f32^ -> M4 {
+let^look_along = f^ex:f32^, ey:f32^, ez:f32^, dx:f32^, dz:f32^ -> M4 {
     # forward f = (dx, 0, dz); side s = f x up = (-dz, 0, dx); up u = s x f = (0, 1, 0).
-    let^ sx = -dz
-    let^ sz = dx
-    return^ M4{m=[sx, 0.0, -dx, 0.0, 0.0, 1.0, 0.0, 0.0, sz, 0.0, -dz, 0.0,
-        -(sx * ex + sz * ez), -ey, dx * ex + dz * ez, 1.0]}
+    let^sx = -dz
+    let^sz = dx
+    return^M4{m=[sx, 0.0, -dx, 0.0, 0.0, 1.0, 0.0, 0.0, sz, 0.0, -dz, 0.0,
+              -(sx * ex + sz * ez), -ey, dx * ex + dz * ez, 1.0]}
 }
 
 # --- GPU programs --------------------------------------------------------------------
 
-let^ world_vertex = "
+let^world_vertex = "
     layout(location = 0) in vec3 a_pos;
     layout(location = 1) in vec2 a_uv;
     layout(location = 2) in vec4 a_rectangle;
@@ -1534,7 +1634,7 @@ let^ world_vertex = "
         gl_Position = view_proj * vec4(a_pos, 1.0);
     }
     "
-let^ world_fragment = "
+let^world_fragment = "
     layout(location = 0) in vec2 uv;
     layout(location = 1) flat in vec4 rectangle;
     layout(location = 2) flat in float light;
@@ -1560,7 +1660,7 @@ let^ world_fragment = "
     }
     "
 
-let^ hud_vertex = "
+let^hud_vertex = "
     layout(location = 0) in vec2 a_pos;
     layout(location = 1) in vec2 a_uv;
     layout(location = 2) in vec4 a_rectangle;
@@ -1576,7 +1676,7 @@ let^ hud_vertex = "
         gl_Position = vec4(a_pos.x / screen.x * 2.0 - 1.0, 1.0 - a_pos.y / screen.y * 2.0, 0.0, 1.0);
     }
     "
-let^ hud_fragment = "
+let^hud_fragment = "
     layout(location = 0) in vec2 uv;
     layout(location = 1) flat in vec4 rectangle;
     layout(location = 2) in vec4 color;
@@ -1590,21 +1690,21 @@ let^ hud_fragment = "
 
 # --- entry point -----------------------------------------------------------------------
 
-var^ frames:i64^ = -1
-var^ walking = false^
-var^ quiet = false^
-var^ path:string^ = "freedoom1-e1m1.wad"
-var^ argument:i64^ = 0
-repeat^ while^ argument < ....len {
-    let^ option = ...[argument]
-    if^ option = "--frames" and^ argument + 1 < ....len {
+var^frames:i64^ = -1
+var^walking = false^
+var^quiet = false^
+var^path:string^ = "freedoom1-e1m1.wad"
+var^argument:i64^ = 0
+repeat^while^argument < ....len {
+    let^option = ...[argument]
+    if^option = "--frames" and^ argument + 1 < ....len {
         frames := i64^.parse(...[argument + 1]) catch^ -1
         argument += 1
-    elif^ option = "--silent":
+    elif^option = "--silent":
         quiet := true^
-    elif^ option = "--walk":
+    elif^option = "--walk":
         walking := true^
-    elif^ option = "--wad" and^ argument + 1 < ....len:
+    elif^option = "--wad" and^ argument + 1 < ....len:
         path := ...[argument + 1]
         argument += 1
     else^:
@@ -1619,91 +1719,93 @@ reset_game()
 print^("lumps ", lumps.len, " pictures ", pictures.len, " sectors ", sectors.len, " lines ", lines.len,
     " floor triangles ", floor_triangles.len)
 
-var^ why:grow^ u8^[] = []
-if^ !gfx.open("R^: Mini Doom / Freedoom E1M1", 960, 600, gfx.WINDOW_RESIZABLE) {
+var^why:grow^ u8^[] = []
+if^!gfx.open("R^: Mini Doom / Freedoom E1M1", 960, 600, gfx.WINDOW_RESIZABLE) {
     gfx.error(ref^ why)
     panic^ "mini doom: cannot open a window"
 }
-let^ atlas = gfx.texture2d(ATLAS_W, ATLAS_H)
-let^ uploaded = gfx.update(atlas, atlas_pixels[..])
-let^ sampler = gfx.sampler(gfx.NEAREST, gfx.CLAMP)
-let^ world_pipeline = gfx.pipeline(world_vertex, world_fragment, gfx.CULL_NONE, gfx.BLEND_NONE, true^, true^)
-let^ hud_pipeline = gfx.pipeline(hud_vertex, hud_fragment, gfx.CULL_NONE, gfx.BLEND_ALPHA, false^, false^)
+
+let^atlas = gfx.texture2d(ATLAS_W, ATLAS_H)
+let^uploaded = atlas.update(atlas_pixels[..])
+let^sampler = gfx.sampler(gfx.NEAREST, gfx.CLAMP)
+let^world_pipeline = gfx.pipeline(world_vertex, world_fragment, gfx.CULL_NONE, gfx.BLEND_NONE, true^, true^)
+let^hud_pipeline = gfx.pipeline(hud_vertex, hud_fragment, gfx.CULL_NONE, gfx.BLEND_ALPHA, false^, false^)
 load_sounds(quiet or^ frames > 0)
-if^ atlas.id = 0 or^ !uploaded or^ sampler.id = 0 or^ world_pipeline.id = 0 or^ hud_pipeline.id = 0 {
+if^atlas.id = 0 or^ !uploaded or^ sampler.id = 0 or^ world_pipeline.id = 0 or^ hud_pipeline.id = 0 {
     gfx.error(ref^ why)
     print^("mini doom: gfx setup failed: ", string^(why[..]) catch^ "?")
     gfx.close()
     return^
 }
-var^ world_buffer = gfx.Buffer{}
-var^ drawn:i64^ = 0
-var^ accumulator:f32^ = 0.0
-var^ wait_for_fire = false^
-var^ fire_pending = false^
-var^ hud_buffer = gfx.Buffer{}
-var^ help = false^
-var^ map = false^
-if^ walking {
+var^world_buffer = gfx.Buffer{}
+var^drawn:i64^ = 0
+var^accumulator:f32^ = 0.0
+var^wait_for_fire = false^
+var^fire_pending = false^
+var^hud_buffer = gfx.Buffer{}
+var^help = false^
+var^map = false^
+if^walking {
     # A scripted walk for testing: focus and the W key, held throughout.
     gfx.inject_focus(true^)
     gfx.inject_key("W", true^)
     gfx.frame()
 }
-var^ paused = !gfx.focused()
-if^ !paused and^ frames < 0 and^ !gfx.set_mouse_relative(true^) {
+var^paused = !gfx.focused()
+if^!paused and^frames < 0 and^!gfx.set_mouse_relative(true^) {
     say("MOUSE CAPTURE FAILED - LEFT/RIGHT TURNS")
 }
-var^ camera:f32^[20] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    0.0, 0.0, 0.0, 0.0]
+var^camera:f32^[20] = [
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+]
 # Input and the fixed-step simulation for one frame.
-let^ step_game = p^ {
-    let^ was_playing = !paused and^ player.health > 0 and^ !won
-    if^ !gfx.focused() or^ gfx.focus_lost() {
+let^step_game = p^ {
+    let^was_playing = !paused and^player.health > 0 and^!won
+    if^!gfx.focused() or^gfx.focus_lost() {
         paused := true^
     else^:
-        if^ gfx.key_pressed("Escape") {
+        if^gfx.key_pressed("Escape") {
             paused := !paused
-        elif^ paused and^ gfx.mouse_pressed(gfx.MOUSE_LEFT):
+        elif^ paused and^gfx.mouse_pressed(gfx.MOUSE_LEFT):
             paused := false^
         }
-        if^ gfx.key_pressed("H") { help := !help }
-        if^ gfx.key_pressed("Tab") { map := !map }
-        if^ gfx.key_pressed("R") and^ (player.health <= 0 or^ won) {
+        if^gfx.key_pressed("H") { help := !help }
+        if^gfx.key_pressed("Tab") { map := !map }
+        if^gfx.key_pressed("R") and^(player.health <= 0 or^ won) {
             reset_game()
             paused := false^
         }
     }
-    let^ playing = !paused and^ player.health > 0 and^ !won
-    if^ playing != was_playing {
-        gfx.set_mouse_relative(playing and^ frames < 0)
+    let^playing = !paused and^player.health > 0 and^!won
+    if^playing != was_playing {
+        gfx.set_mouse_relative(playing and^frames < 0)
         wait_for_fire := true^
     }
-    let^ fire_down = gfx.mouse_down(gfx.MOUSE_LEFT) or^ gfx.key_down("Left Ctrl") or^ gfx.key_down("Right Ctrl")
-    if^ !fire_down { wait_for_fire := false^ }
-    let^ dt = if^ frames > 0: STEP el^: fmin(f32^(gfx.delta_time()), 0.1);
-    if^ playing and^ was_playing {
+    let^fire_down = gfx.mouse_down(gfx.MOUSE_LEFT) or^gfx.key_down("Left Ctrl") or^gfx.key_down("Right Ctrl")
+    if^!fire_down { wait_for_fire := false^ }
+    let^dt = if^ frames > 0: STEP el^: fmin(f32^(gfx.delta_time()), 0.1);
+    if^playing and^was_playing {
         # Keep a short press until a tick consumes it: a press and release can
         # both arrive between rendered frames.
-        if^ !wait_for_fire and^ (gfx.mouse_pressed(gfx.MOUSE_LEFT) or^ gfx.key_pressed("Left Ctrl") or^
+        if^!wait_for_fire and^(gfx.mouse_pressed(gfx.MOUSE_LEFT) or^gfx.key_pressed("Left Ctrl") or^
             gfx.key_pressed("Right Ctrl")) {
             fire_pending := true^
         }
-        if^ gfx.key_pressed("1") { player.weapon := 1 }
-        if^ gfx.key_pressed("2") { player.weapon := 2 }
-        if^ gfx.key_pressed("3") and^ player.shotgun { player.weapon := 3 }
-        if^ gfx.key_pressed("4") and^ player.chaingun { player.weapon := 4 }
-        if^ gfx.mouse_relative() { player.yaw -= gfx.mouse_dx() * 0.003 }
-        if^ gfx.key_down("Left") { player.yaw += dt * 2.2 }
-        if^ gfx.key_down("Right") { player.yaw -= dt * 2.2 }
+        if^gfx.key_pressed("1") { player.weapon := 1 }
+        if^gfx.key_pressed("2") { player.weapon := 2 }
+        if^gfx.key_pressed("3") and^ player.shotgun { player.weapon := 3 }
+        if^gfx.key_pressed("4") and^ player.chaingun { player.weapon := 4 }
+        if^gfx.mouse_relative() { player.yaw -= gfx.mouse_dx() * 0.003 }
+        if^gfx.key_down("Left") { player.yaw += dt * 2.2 }
+        if^gfx.key_down("Right") { player.yaw -= dt * 2.2 }
         player.yaw := player.yaw - TAU * math.floor(player.yaw / TAU)
-        if^ gfx.key_pressed("E") or^ gfx.key_pressed("Space") { use() }
+        if^gfx.key_pressed("E") or^ gfx.key_pressed("Space") { use() }
         var^ direction = F2{}
-        if^ gfx.key_down("W") or^ gfx.key_down("Up") { direction.y += 1.0 }
-        if^ gfx.key_down("S") or^ gfx.key_down("Down") { direction.y -= 1.0 }
-        if^ gfx.key_down("D") { direction.x += 1.0 }
-        if^ gfx.key_down("A") { direction.x -= 1.0 }
-        let^ running = gfx.key_down("Left Shift") or^ gfx.key_down("Right Shift")
+        if^gfx.key_down("W") or^ gfx.key_down("Up") { direction.y += 1.0 }
+        if^gfx.key_down("S") or^ gfx.key_down("Down") { direction.y -= 1.0 }
+        if^gfx.key_down("D") { direction.x += 1.0 }
+        if^gfx.key_down("A") { direction.x -= 1.0 }
+        let^running = gfx.key_down("Left Shift") or^ gfx.key_down("Right Shift")
         accumulator += dt
         repeat^ while^ accumulator >= STEP and^ !won and^ player.health > 0 {
             tick(direction, running, (fire_down or^ fire_pending) and^ !wait_for_fire)
@@ -1714,39 +1816,39 @@ let^ step_game = p^ {
         accumulator := 0.0
         fire_pending := false^
     }
-    if^ (player.health <= 0 or^ won) and^ gfx.mouse_relative() { gfx.set_mouse_relative(false^) }
+    if^(player.health <= 0 or^ won) and^ gfx.mouse_relative() { gfx.set_mouse_relative(false^) }
 }
 
 # The world mesh, rebuilt every frame, drawn from the player's eye; then the
 # HUD in a 320 x 200 canvas scaled to the window.
-let^ draw_world = p^ width:f32^, height:f32^ {
-    var^ mesh:grow^ Vertex[] = []
+let^draw_world = p^ width:f32^, height:f32^ {
+    var^mesh:grow^Vertex[] = []
     world_mesh(ref^ mesh)
     sprite_mesh(ref^ mesh)
-    if^ world_buffer.id = 0 or^ gfx.size(world_buffer) < mesh.bytes.len {
-        if^ world_buffer.id != 0 { gfx.release(world_buffer) }
+    if^world_buffer.id = 0 or^world_buffer.size() < mesh.bytes.len {
+        if^world_buffer.id != 0 { world_buffer.release() }
         world_buffer := gfx.buffer_sized(gfx.BUFFER_VERTEX, imax(4096, mesh.bytes.len * 2), mesh.bytes)
     else^:
-        gfx.update(world_buffer, mesh.bytes)
+        world_buffer.update(mesh.bytes)
     }
-    let^ ex = player.pos.x
-    let^ ey = player.z + (if^ player.health <= 0: f32^(12.0) el^: 41.0 + math.sin(player.bob * 2.0) * 0.6;)
-    let^ ez = -player.pos.y
-    let^ view = look_along(ex, ey, ez, math.cos(player.yaw), -math.sin(player.yaw))
-    let^ scale = fmin(width / 320.0, height / 200.0)
-    let^ screen = F2{x=width / scale, y=height / scale}
-    let^ view_height = height * (screen.y - 34.0) / screen.y
-    let^ view_proj = multiply(perspective(1.1, width / view_height, 1.0, 12000.0), view)
-    for^ i from^ 0 to^ 15 { camera[i] := view_proj.m[i] }
+    let^ex = player.pos.x
+    let^ey = player.z + (if^ player.health <= 0: f32^(12.0) el^: 41.0 + math.sin(player.bob * 2.0) * 0.6;)
+    let^ez = -player.pos.y
+    let^view = look_along(ex, ey, ez, math.cos(player.yaw), -math.sin(player.yaw))
+    let^scale = fmin(width / 320.0, height / 200.0)
+    let^screen = F2{x=width / scale, y=height / scale}
+    let^view_height = height * (screen.y - 34.0) / screen.y
+    let^view_proj = multiply(perspective(1.1, width / view_height, 1.0, 12000.0), view)
+    for^i from^0 to^15 { camera[i] := view_proj.m[i] }
     camera[16] := ex
     camera[17] := ey
     camera[18] := ez
-    let^ hud_count = upload_hud(screen)
-    if^ gfx.begin_screen(0.16, 0.19, 0.22, 1.0, true^) {
+    let^hud_count = upload_hud(screen)
+    if^gfx.begin_screen(0.16, 0.19, 0.22, 1.0, true^) {
         gfx.viewport(0.0, 0.0, width, view_height)
-        gfx.bind(world_pipeline)
+        world_pipeline.bind()
         gfx.bind_texture(gfx.FRAGMENT, 0, atlas, sampler)
-        gfx.bind_vertex_buffer(world_buffer)
+        world_buffer.bind_vertex_buffer()
         gfx.push_uniforms(gfx.VERTEX, 0, camera.bytes)
         gfx.draw(mesh.len)
         draw_hud_pass(width, height, screen, hud_count)
@@ -1755,38 +1857,39 @@ let^ draw_world = p^ width:f32^, height:f32^ {
 }
 
 # Builds and uploads the HUD before the pass; buffers cannot change inside one.
-let^ upload_hud = p^ screen:F2 -> i64^ {
-    var^ hud:grow^ HudVertex[] = []
+let^upload_hud = p^screen:F2 -> i64^ {
+    var^hud:grow^ HudVertex[] = []
     draw_hud(ref^ hud, screen, paused, help, map)
-    if^ hud_buffer.id = 0 or^ gfx.size(hud_buffer) < hud.bytes.len {
-        if^ hud_buffer.id != 0 { gfx.release(hud_buffer) }
+    if^hud_buffer.id = 0 or^ hud_buffer.size() < hud.bytes.len {
+        if^hud_buffer.id != 0 { hud_buffer.release() }
         hud_buffer := gfx.buffer_sized(gfx.BUFFER_VERTEX, imax(4096, hud.bytes.len * 2), hud.bytes)
     else^:
-        gfx.update(hud_buffer, hud.bytes)
+        hud_buffer.update(hud.bytes)
     }
     return^ hud.len
 }
-let^ draw_hud_pass = p^ width:f32^, height:f32^, screen:F2, count:i64^ {
+
+let^draw_hud_pass = p^width:f32^, height:f32^, screen:F2, count:i64^ {
     let^ canvas:f32^[4] = [screen.x, screen.y, 0.0, 0.0]
     gfx.viewport(0.0, 0.0, width, height)
-    gfx.bind(hud_pipeline)
+    hud_pipeline.bind()
     gfx.bind_texture(gfx.FRAGMENT, 0, atlas, sampler)
-    gfx.bind_vertex_buffer(hud_buffer)
+    hud_buffer.bind_vertex_buffer()
     gfx.push_uniforms(gfx.VERTEX, 0, canvas.bytes)
     gfx.draw(count)
 }
 
-repeat^ while^ gfx.frame() {
-    let^ width = f32^(gfx.width())
-    let^ height = f32^(gfx.height())
-    if^ width <= 0.0 or^ height <= 0.0 { continue^ }
+repeat^while^gfx.frame() {
+    let^width = f32^(gfx.width())
+    let^height = f32^(gfx.height())
+    if^width <= 0.0 or^height <= 0.0 { continue^ }
     step_game()
     draw_world(width, height)
-    if^ gfx.key_pressed("F12") {
+    if^gfx.key_pressed("F12") {
         say(if^ gfx.screenshot("mini_doom.png"): "SAVED MINI_DOOM.PNG" el^: "SCREENSHOT FAILED";)
     }
     drawn += 1
-    if^ drawn = frames { break^ }
+    if^drawn = frames { break^ }
 }
 if^ frames > 0 {
     print^("drew ", drawn, " frames; saved mini_doom.png: ", gfx.screenshot("mini_doom.png"))

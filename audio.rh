@@ -15,8 +15,21 @@ externC^rg_audio_stop:p^voice:u64^;
 externC^rg_audio_stop_all:p^;
 
 # A handle is 0 when nothing was made.
-public^def^Sound { self^{ id:u64^ = 0 } }
-public^def^Voice { self^{ id:u64^ = 0 } }
+public^def^Sound {
+    self^{ id:u64^ = 0 },
+    release = p^self^ -> bool^ { return^ rg_audio_release_sound(self^.id) },
+
+    # Volume from 0, pan from -1 (left) to 1 (right), pitch 1 for the recorded rate.
+    play = p^self^, volume:f32^, pan:f32^, pitch:f32^, loop:bool^ -> Voice {
+        return^Voice{id=rg_audio_play(self^.id, volume, pan, pitch, loop)}
+    }
+}
+
+public^def^Voice {
+    self^{ id:u64^ = 0 },
+    playing = f^self^ -> bool^ { return^ rg_audio_playing(self^.id) },
+    stop = p^self^ { rg_audio_stop(self^.id) }
+}
 
 # Opens the default device; only one mixer may be open.
 public^let^open = f^sample_rate:i64^ -> bool^ { return^ rg_audio_open(sample_rate) }
@@ -31,14 +44,7 @@ public^let^error = p^text:ref^ grow^ u8^[] {
 }
 
 public^let^sound = f^samples:f32^[:], sample_rate:i64^, channels:i64^ -> Sound {
-    return^ Sound{id=rg_audio_create_sound(samples, samples.len, sample_rate, channels)}
+    return^Sound{id=rg_audio_create_sound(samples, samples.len, sample_rate, channels)}
 }
-public^let^release = p^s:Sound -> bool^ { return^ rg_audio_release_sound(s.id) }
 
-# Volume from 0, pan from -1 (left) to 1 (right), pitch 1 for the recorded rate.
-public^let^play = p^s:Sound, volume:f32^, pan:f32^, pitch:f32^, loop:bool^ -> Voice {
-    return^ Voice{id=rg_audio_play(s.id, volume, pan, pitch, loop)}
-}
-public^let^playing = f^v:Voice -> bool^ { return^ rg_audio_playing(v.id) }
-public^let^stop = p^v:Voice { rg_audio_stop(v.id) }
 public^let^stop_all = p^ { rg_audio_stop_all() }
