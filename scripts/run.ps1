@@ -25,5 +25,5 @@ $link = foreach ($l in $libs + $system) { '--link-lib'; $l }
 $exe = Join-Path $out ([IO.Path]::GetFileNameWithoutExtension($Source) + '.exe')
 & $Rhat build $Source -o $exe --module-path $root @link
 if ($LASTEXITCODE -ne 0) { throw 'rhat build failed' }
-Push-Location $out
-try { & $exe @Arguments } finally { Pop-Location }
+# From the caller's directory, so that relative paths in -Arguments hold.
+& $exe @Arguments
