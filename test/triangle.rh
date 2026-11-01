@@ -1,0 +1,45 @@
+import^gfx
+
+# A triangle from the vertex index alone: no buffers, so this checks the shader
+# compiler, the pipeline and drawing.
+let^ vs = "
+    layout(location = 0) out vec3 color;
+    void main() {
+        vec2 p[3] = vec2[3](vec2(0.0, 0.7), vec2(-0.7, -0.7), vec2(0.7, -0.7));
+        vec3 c[3] = vec3[3](vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0));
+        color = c[gl_VertexIndex];
+        gl_Position = vec4(p[gl_VertexIndex], 0.0, 1.0);
+    }
+    "
+let^ fs = "
+    layout(location = 0) in vec3 color;
+    layout(location = 0) out vec4 result;
+    void main() { result = vec4(color, 1.0); }
+    "
+
+var^ why:grow^ u8^[] = []
+let^ ok = gfx.open("rhat-gfx triangle", 640, 360, 0)
+if^ !ok {
+    gfx.error(ref^ why)
+    print^("open failed: ", string^(why[..]) catch^ "?")
+    return^
+}
+let^ pipeline = gfx.pipeline(vs, fs, gfx.CULL_NONE, gfx.BLEND_NONE, false^, false^)
+if^ pipeline.id = 0 {
+    gfx.error(ref^ why)
+    print^("pipeline failed: ", string^(why[..]) catch^ "?")
+    gfx.close()
+    return^
+}
+var^ frames:i64^ = 0
+repeat^ while^ gfx.frame() and^ frames < 30 {
+    if^ gfx.begin_screen(0.1, 0.1, 0.12, 1.0, false^) {
+        gfx.bind(pipeline)
+        gfx.draw(3)
+        gfx.end_pass()
+    }
+    frames := frames + 1
+}
+print^("frames ", frames, " saved ", gfx.screenshot("triangle.png"), " misuse ", gfx.misuse_count())
+gfx.release(pipeline)
+gfx.close()
