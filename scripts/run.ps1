@@ -1,10 +1,12 @@
 # Builds one R^ program against the built native layers and runs it.
-#   scripts/run.ps1 test/triangle.rh [-Build]    (-Build builds the layers first)
+#   scripts/run.ps1 test/triangle.rh [-Build] [-Arguments a, b]
+# -Build builds the layers first; -Arguments go to the program.
 # The layers are built with the generator and clang of the current shell; run
 # it from a shell set up as rhat's scripts/devshell.ps1 does.
 param(
     [Parameter(Mandatory)][string]$Source,
     [switch]$Build,
+    [string[]]$Arguments = @(),
     [string]$Rhat = (Join-Path $PSScriptRoot '..\..\rhat\build\Release\rhat.exe')
 )
 $ErrorActionPreference = 'Stop'
@@ -24,4 +26,4 @@ $exe = Join-Path $out ([IO.Path]::GetFileNameWithoutExtension($Source) + '.exe')
 & $Rhat build $Source -o $exe --module-path $root @link
 if ($LASTEXITCODE -ne 0) { throw 'rhat build failed' }
 Push-Location $out
-try { & $exe } finally { Pop-Location }
+try { & $exe @Arguments } finally { Pop-Location }

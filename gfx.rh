@@ -131,6 +131,10 @@ public^let^inject_focus = p^focused:bool^ -> bool^ { return^ rg_inject_focus(foc
 public^let^buffer = f^usage:i64^, data:u8^[:] -> Buffer {
     return^ Buffer{id=rg_create_buffer(usage, data.len, data, data.len)}
 }
+# A buffer of size bytes, starting with data; update() replaces from the start.
+public^let^buffer_sized = f^usage:i64^, size:i64^, data:u8^[:] -> Buffer {
+    return^ Buffer{id=rg_create_buffer(usage, size, data, data.len)}
+}
 public^let^update = f^b:Buffer, data:u8^[:] -> bool^ { return^ rg_update_buffer(b.id, 0, data, data.len) }
 public^let^size = f^b:Buffer -> i64^ { return^ rg_buffer_size(b.id) }
 public^let^release = p^b:Buffer { rg_release_buffer(b.id) }

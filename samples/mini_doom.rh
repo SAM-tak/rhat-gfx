@@ -1,0 +1,709 @@
+# A small Doom-like game on a real Freedoom WAD, ported from Goose's
+# samples/31_mini_doom.goose. The WAD supplies the map, palette, textures,
+# sprites, font and sound effects. This is not a source port.
+#
+#   mini_doom --wad path/to/freedoom1-e1m1.wad [--frames N]
+#
+# Read downwards: bytes -> pictures -> map -> rendering.
+
+import^gfx
+let^ fs = import^ std.fs
+let^ math = import^ std.math
+
+# --- small math ---------------------------------------------------------------
+
+def^ F2 {
+    self^{ x:f32^ = 0.0, y:f32^ = 0.0 }
+    op^+ = f^ self^, b:F2 -> F2 { return^ F2{x=self^.x + b.x, y=self^.y + b.y} }
+    op^- = f^ self^, b:F2 -> F2 { return^ F2{x=self^.x - b.x, y=self^.y - b.y} }
+    op^* = f^ self^, s:f32^ -> F2 { return^ F2{x=self^.x * s, y=self^.y * s} }
+}
+
+let^ cross2 = f^ a:F2, b:F2 -> f32^ { return^ a.x * b.y - a.y * b.x }
+let^ dot2 = f^ a:F2, b:F2 -> f32^ { return^ a.x * b.x + a.y * b.y }
+let^ length2 = f^ a:F2 -> f32^ { return^ math.sqrt(dot2(a, a)) }
+let^ distance2 = f^ a:F2, b:F2 -> f32^ { return^ length2(a - b) }
+let^ fmin = f^ a:f32^, b:f32^ -> f32^ { return^ if^ a < b: a el^: b; }
+let^ fmax = f^ a:f32^, b:f32^ -> f32^ { return^ if^ a > b: a el^: b; }
+let^ imin = f^ a:i64^, b:i64^ -> i64^ { return^ if^ a < b: a el^: b; }
+let^ imax = f^ a:i64^, b:i64^ -> i64^ { return^ if^ a > b: a el^: b; }
+let^ fclamp = f^ x:f32^, lo:f32^, hi:f32^ -> f32^ { return^ fmin(fmax(x, lo), hi) }
+
+let^ require = f^ ok:bool^, message:string^ {
+    if^ !ok { panic^ message }
+}
+
+# --- the WAD directory and little-endian values --------------------------------
+
+def^ Lump { self^{ name:u8^[..8] = [], start:i64^ = 0, size:i64^ = 0 } }
+var^ wad:grow^ u8^[] = []
+var^ lumps:grow^ Lump[] = []
+
+let^ u16le = f^ data:u8^[:], at:i64^ -> i64^ {
+    if^ at < 0 or^ at + 2 > data.len { panic^ "mini doom: truncated 16-bit WAD field" }
+    return^ i64^(data[at]) + i64^(data[at + 1]) * 256
+}
+let^ i16le = f^ data:u8^[:], at:i64^ -> i64^ {
+    let^ v = u16le(data, at)
+    return^ if^ v >= 32768: v - 65536 el^: v;
+}
+let^ u32le = f^ data:u8^[:], at:i64^ -> i64^ {
+    return^ u16le(data, at) + u16le(data, at + 2) * 65536
+}
+# A name of up to eight bytes, ending at the first NUL.
+let^ name_at = f^ data:u8^[:], at:i64^ -> u8^[..8] {
+    require(at >= 0 and^ at + 8 <= data.len, "mini doom: truncated WAD name")
+    var^ name:u8^[..8] = []
+    var^ i:i64^ = 0
+    repeat^ while^ i < 8 and^ data[at + i] != 0 {
+        name.push(data[at + i])
+        i += 1
+    }
+    return^ name
+}
+let^ same = f^ a:u8^[:], b:u8^[:] -> bool^ {
+    if^ a.len != b.len { return^ false^ }
+    for^ i from^ 0 to^ a.len - 1 {
+        if^ a[i] != b[i] { return^ false^ }
+    }
+    return^ true^
+}
+# prefix followed by n written with at least digits digits.
+let^ numbered = f^ prefix:string^, n:i64^, digits:i64^ -> u8^[..8] {
+    var^ name:u8^[..8] = []
+    name.append(prefix.bytes)
+    var^ text:u8^[..8] = []
+    var^ rest = n
+    repeat^ while^ rest > 0 or^ text.len < digits {
+        text.push(u8^(48 + rest % 10))
+        rest := rest / 10
+    }
+    repeat^ while^ text.len > 0 { name.push(text.pop()) }
+    return^ name
+}
+
+let^ find_lump = f^ name:u8^[:] -> i64^ {
+    # Last definition wins, as in a normal WAD directory.
+    var^ i = lumps.len
+    repeat^ while^ i > 0 {
+        i -= 1
+        if^ same(lumps[i].name[..], name) { return^ i }
+    }
+    return^ -1
+}
+let^ lump_bytes = f^ i:i64^ -> u8^[:] {
+    require(i >= 0 and^ i < lumps.len, "mini doom: missing WAD lump")
+    return^ wad[lumps[i].start .. lumps[i].start + lumps[i].size]
+}
+let^ lump = f^ name:u8^[:] -> u8^[:] {
+    let^ i = find_lump(name)
+    require(i >= 0, "mini doom: missing lump")
+    return^ lump_bytes(i)
+}
+let^ load_wad = p^ path:string^ {
+    let^ loaded = fs.read(path, ref^ wad)
+    for^ loaded { when^ fits^ fs.Error: panic^ "mini doom: cannot read the WAD (give --wad PATH)" other^: ; }
+    require(wad.len >= 12, "mini doom: truncated WAD header")
+    let^ signature = wad[0 .. 4]
+    require(same(signature, "IWAD".bytes) or^ same(signature, "PWAD".bytes), "mini doom: expected a Doom WAD")
+    let^ count = u32le(wad[..], 4)
+    let^ directory = u32le(wad[..], 8)
+    require(count <= 100000 and^ directory + count * 16 <= wad.len, "mini doom: bad WAD directory")
+    for^ i from^ 0 to^ count - 1 {
+        let^ at = directory + i * 16
+        let^ start = u32le(wad[..], at)
+        let^ size = u32le(wad[..], at + 4)
+        require(start + size <= wad.len, "mini doom: lump extends past the end of the WAD")
+        lumps.push(Lump{name=name_at(wad[..], at + 8), start=start, size=size})
+    }
+    require(find_lump("E1M1".bytes) >= 0, "mini doom: this sample needs the E1M1 WAD")
+}
+
+# --- palette pictures in one GPU atlas -----------------------------------------
+
+# A shelf packer: each row is as tall as its tallest picture. Texture
+# coordinates repeat within each rectangle in the fragment shader.
+let^ ATLAS_W:i64^ = 2048
+let^ ATLAS_H:i64^ = 4096
+def^ Picture {
+    self^{ name:u8^[..8] = [], kind:i64^ = 0, x:i64^ = 0, y:i64^ = 0, w:i64^ = 0, h:i64^ = 0,
+           left:i64^ = 0, top:i64^ = 0 }
+}
+var^ pictures:grow^ Picture[] = []
+var^ atlas_pixels:grow^ u8^[] = []
+var^ shelf:i64^[..3] = [0, 0, 0]   # x, y and height of the current shelf
+var^ palette:grow^ u8^[] = []
+var^ font:grow^ i64^[] = []
+var^ sky_picture:i64^ = 0
+
+let^ find_picture = f^ name:u8^[:], kind:i64^ -> i64^ {
+    for^ i from^ 0 to^ pictures.len - 1 {
+        if^ pictures[i].kind = kind and^ same(pictures[i].name[..], name) { return^ i }
+    }
+    return^ -1
+}
+let^ new_picture = p^ name:u8^[:], kind:i64^, w:i64^, h:i64^ -> i64^ {
+    require(w > 0 and^ h > 0 and^ w <= ATLAS_W and^ h <= 1024, "mini doom: bad picture dimensions")
+    if^ shelf[0] + w > ATLAS_W {
+        shelf[0] := 0
+        shelf[1] += shelf[2]
+        shelf[2] := 0
+    }
+    require(shelf[1] + h <= ATLAS_H, "mini doom: picture atlas is full")
+    var^ picture = Picture{kind=kind, x=shelf[0], y=shelf[1], w=w, h=h}
+    picture.name.append(name)
+    pictures.push(picture)
+    shelf[0] += w
+    shelf[2] := imax(shelf[2], h)
+    return^ pictures.len - 1
+}
+let^ pixel = p^ pic:i64^, x:i64^, y:i64^, color:i64^ {
+    let^ p = pictures[pic]
+    if^ x < 0 or^ y < 0 or^ x >= p.w or^ y >= p.h { return^ }
+    let^ at = ((p.y + y) * ATLAS_W + p.x + x) * 4
+    atlas_pixels[at] := palette[color * 3]
+    atlas_pixels[at + 1] := palette[color * 3 + 1]
+    atlas_pixels[at + 2] := palette[color * 3 + 2]
+    atlas_pixels[at + 3] := 255
+}
+let^ paint_patch = p^ pic:i64^, data:u8^[:], origin_x:i64^, origin_y:i64^ {
+    let^ w = u16le(data, 0)
+    require(8 + w * 4 <= data.len, "mini doom: truncated patch columns")
+    for^ x from^ 0 to^ w - 1 {
+        var^ at = u32le(data, 8 + x * 4)
+        var^ previous:i64^ = -1
+        repeat^ {
+            require(at < data.len, "mini doom: unterminated patch column")
+            var^ top = i64^(data[at])
+            if^ top = 255 { break^ }
+            require(at + 4 <= data.len, "mini doom: truncated patch post")
+            let^ count = i64^(data[at + 1])
+            require(at + count + 4 <= data.len, "mini doom: truncated patch pixels")
+            # Also accepts the relative posts used by tall Doom patches.
+            if^ top <= previous { top += previous }
+            previous := top
+            for^ y from^ 0 to^ count - 1 {
+                pixel(pic, origin_x + x, origin_y + top + y, i64^(data[at + 3 + y]))
+            }
+            at += count + 4
+        }
+    }
+}
+let^ patch = p^ name:u8^[:] -> i64^ {
+    let^ cached = find_picture(name, 0)
+    if^ cached >= 0 { return^ cached }
+    let^ data = lump(name)
+    let^ id = new_picture(name, 0, u16le(data, 0), u16le(data, 2))
+    pictures[id].left := i16le(data, 4)
+    pictures[id].top := i16le(data, 6)
+    paint_patch(id, data, 0, 0)
+    return^ id
+}
+let^ flat = p^ name:u8^[:] -> i64^ {
+    if^ same(name, "F_SKY1".bytes) { return^ -1 }
+    let^ cached = find_picture(name, 2)
+    if^ cached >= 0 { return^ cached }
+    let^ data = lump(name)
+    require(data.len = 4096, "mini doom: a flat must be 64 x 64")
+    let^ id = new_picture(name, 2, 64, 64)
+    for^ y:i64^ from^ 0 to^ 63 {
+        for^ x:i64^ from^ 0 to^ 63 { pixel(id, x, y, i64^(data[y * 64 + x])) }
+    }
+    return^ id
+}
+let^ wall_texture = f^ name:u8^[:] -> i64^ {
+    if^ same(name, "-".bytes) { return^ -1 }
+    let^ id = find_picture(name, 1)
+    require(id >= 0, "mini doom: missing wall texture")
+    return^ id
+}
+let^ load_pictures = p^ {
+    for^ 1 to^ ATLAS_W * ATLAS_H * 4 { atlas_pixels.push(0) }
+    let^ pal = lump("PLAYPAL".bytes)
+    require(pal.len >= 768, "mini doom: truncated palette")
+    palette.append(pal[0 .. 768])
+    # Picture 0 is an opaque white pixel, for HUD rectangles.
+    new_picture("WHITE".bytes, 0, 1, 1)
+    for^ i from^ 0 to^ 3 { atlas_pixels[i] := 255 }
+
+    load_textures()
+    load_sprites()
+}
+let^ load_textures = p^ {
+    let^ names = lump("PNAMES".bytes)
+    let^ name_count = u32le(names, 0)
+    require(4 + name_count * 8 <= names.len, "mini doom: truncated PNAMES")
+    let^ textures = lump("TEXTURE1".bytes)
+    let^ count = u32le(textures, 0)
+    for^ i from^ 0 to^ count - 1 {
+        let^ at = u32le(textures, 4 + i * 4)
+        let^ name = name_at(textures, at)
+        let^ id = new_picture(name[..], 1, u16le(textures, at + 12), u16le(textures, at + 14))
+        let^ patches = u16le(textures, at + 20)
+        for^ j from^ 0 to^ patches - 1 {
+            let^ p = at + 22 + j * 10
+            let^ number = u16le(textures, p + 4)
+            require(number < name_count, "mini doom: bad patch name index")
+            let^ patch_name = name_at(names, 4 + number * 8)
+            paint_patch(id, lump(patch_name[..]), i16le(textures, p), i16le(textures, p + 2))
+        }
+    }
+}
+let^ load_sprites = p^ {
+    # Load every sprite once; gameplay only looks up these IDs.
+    let^ first = find_lump("S_START".bytes)
+    let^ last = find_lump("S_END".bytes)
+    require(first >= 0 and^ last > first, "mini doom: missing sprite markers")
+    for^ i from^ first + 1 to^ last - 1 {
+        if^ lumps[i].size > 0 { patch(lumps[i].name[..]) }
+    }
+    for^ c:i64^ from^ 0 to^ 127 {
+        let^ glyph = numbered("STCFN", c, 3)
+        font.push(if^ c >= 33 and^ c < 96: patch(glyph[..]) el^: 0;)
+    }
+    sky_picture := wall_texture("SKY1".bytes)
+    let^ liquids = ["NUKAGE1", "NUKAGE2", "NUKAGE3", "FWATER1", "FWATER2", "FWATER3", "FWATER4"]
+    for^ i from^ 0 to^ 6 { flat(liquids[i].bytes) }
+}
+
+# --- map records ----------------------------------------------------------------
+
+def^ Side { self^{ offset:F2 = F2{}, upper:i64^ = -1, lower:i64^ = -1, middle:i64^ = -1, sector:i64^ = 0 } }
+def^ Line {
+    self^{ a:F2 = F2{}, b:F2 = F2{}, flags:i64^ = 0, special:i64^ = 0, tag:i64^ = 0, front:i64^ = 0,
+           back:i64^ = -1, activated:bool^ = false^ }
+}
+def^ Sector {
+    self^{ floor:f32^ = 0.0, ceiling:f32^ = 0.0, floor_pic:i64^ = -1, ceiling_pic:i64^ = -1,
+           light:f32^ = 1.0, special:i64^ = 0, tag:i64^ = 0, start_floor:f32^ = 0.0,
+           start_ceiling:f32^ = 0.0, motion:i64^ = 0, target:f32^ = 0.0, wait:f32^ = 0.0,
+           speed:f32^ = 0.0, secret_found:bool^ = false^ }
+}
+def^ Seg { self^{ a:F2 = F2{}, b:F2 = F2{}, sector:i64^ = 0 } }
+def^ Subsector { self^{ first:i64^ = 0, count:i64^ = 0, sector:i64^ = 0 } }
+def^ Node { self^{ origin:F2 = F2{}, delta:F2 = F2{}, front:i64^ = 0, back:i64^ = 0 } }
+def^ FloorTriangle { self^{ a:F2 = F2{}, b:F2 = F2{}, c:F2 = F2{}, sector:i64^ = 0 } }
+var^ vertices:grow^ F2[] = []
+var^ sides:grow^ Side[] = []
+var^ lines:grow^ Line[] = []
+var^ sectors:grow^ Sector[] = []
+var^ segs:grow^ Seg[] = []
+var^ subsectors:grow^ Subsector[] = []
+var^ nodes:grow^ Node[] = []
+var^ floor_triangles:grow^ FloorTriangle[] = []
+
+let^ front_sector = f^ line:Line -> i64^ { return^ sides[line.front].sector }
+let^ back_sector = f^ line:Line -> i64^ {
+    return^ if^ line.back < 0: -1 el^: sides[line.back].sector;
+}
+
+let^ sector_at = f^ p:F2 -> i64^ {
+    var^ child = nodes.len - 1
+    var^ steps:i64^ = 0
+    repeat^ while^ child < 32768 {
+        require(child >= 0 and^ child < nodes.len and^ steps <= nodes.len, "mini doom: invalid BSP tree")
+        let^ n = nodes[child]
+        child := if^ cross2(n.delta, p - n.origin) <= 0.0: n.front el^: n.back;
+        steps += 1
+    }
+    let^ leaf = child - 32768
+    require(leaf < subsectors.len, "mini doom: bad BSP leaf")
+    return^ subsectors[leaf].sector
+}
+
+# Doom subsectors list only their solid and portal edges, not every BSP cut,
+# so a fan of seg ends leaves holes. Clip a bounding polygon down the BSP and
+# by the leaf's edges to recover each convex cell. Appends into the caller's
+# scratch; earlier views of it stay valid as it grows.
+let^ clip_polygon = p^ poly:F2[:], origin:F2, delta:F2, out:ref^ grow^ F2[] {
+    if^ poly.len = 0 { return^ }
+    var^ previous = poly[poly.len - 1]
+    var^ d0 = cross2(delta, previous - origin)
+    for^ i from^ 0 to^ poly.len - 1 {
+        let^ current = poly[i]
+        let^ d1 = cross2(delta, current - origin)
+        if^ (d0 <= 0.0) != (d1 <= 0.0) {
+            out.push(previous + (current - previous) * (d0 / (d0 - d1)))
+        }
+        if^ d1 <= 0.0 { out.push(current) }
+        previous := current
+        d0 := d1
+    }
+}
+let^ build_floors = p^ child:i64^, poly:F2[:], depth:i64^, scratch:ref^ grow^ F2[] {
+    require(depth <= nodes.len, "mini doom: cyclic BSP tree")
+    if^ poly.len < 3 { return^ }
+    let^ mark = scratch.len
+    if^ child >= 32768 {
+        require(child - 32768 < subsectors.len, "mini doom: bad floor leaf")
+        let^ leaf = subsectors[child - 32768]
+        var^ start = mark
+        for^ i from^ 0 to^ leaf.count - 1 {
+            let^ edge = segs[leaf.first + i]
+            let^ input = if^ i = 0: poly el^: scratch[start ..];
+            start := scratch.len
+            clip_polygon(input, edge.a, edge.b - edge.a, scratch)
+        }
+        let^ clipped = scratch[start ..]
+        for^ i from^ 1 to^ clipped.len - 2 {
+            # Drop numerical slivers; their centroids can round across a cut.
+            if^ math.abs(cross2(clipped[i] - clipped[0], clipped[i + 1] - clipped[0])) > 0.1 {
+                floor_triangles.push(FloorTriangle{a=clipped[0], b=clipped[i], c=clipped[i + 1], sector=leaf.sector})
+            }
+        }
+    else^:
+        require(child >= 0 and^ child < nodes.len, "mini doom: bad floor node")
+        let^ n = nodes[child]
+        clip_polygon(poly, n.origin, n.delta, scratch)
+        build_floors(n.front, scratch[mark ..], depth + 1, scratch)
+        let^ left_start = scratch.len
+        clip_polygon(poly, n.origin, n.delta * -1.0, scratch)
+        build_floors(n.back, scratch[left_start ..], depth + 1, scratch)
+    }
+    scratch.truncate(mark)
+}
+let^ records = f^ name:string^, size:i64^ -> u8^[:] {
+    let^ data = lump(name.bytes)
+    require(data.len > 0 and^ data.len % size = 0, "mini doom: bad map record size")
+    return^ data
+}
+let^ point = f^ data:u8^[:], at:i64^ -> F2 {
+    return^ F2{x=f32^(i16le(data, at)), y=f32^(i16le(data, at + 2))}
+}
+let^ load_map = p^ {
+    load_sectors()
+    load_lines()
+    load_tree()
+    let^ bounds:F2[4] = [F2{x=-32768.0, y=-32768.0}, F2{x=32768.0, y=-32768.0},
+        F2{x=32768.0, y=32768.0}, F2{x=-32768.0, y=32768.0}]
+    var^ scratch:grow^ F2[] = []
+    build_floors(nodes.len - 1, bounds[..], 0, ref^ scratch)
+}
+let^ load_sectors = p^ {
+    let^ v = records("VERTEXES", 4)
+    for^ i from^ 0 to^ v.len / 4 - 1 { vertices.push(point(v, i * 4)) }
+    let^ sec = records("SECTORS", 26)
+    for^ i from^ 0 to^ sec.len / 26 - 1 {
+        let^ at = i * 26
+        let^ bottom = f32^(i16le(sec, at))
+        let^ top = f32^(i16le(sec, at + 2))
+        let^ floor_name = name_at(sec, at + 4)
+        let^ ceiling_name = name_at(sec, at + 12)
+        sectors.push(Sector{floor=bottom, ceiling=top, floor_pic=flat(floor_name[..]),
+            ceiling_pic=flat(ceiling_name[..]), light=fclamp(f32^(i16le(sec, at + 20)) / 255.0, 0.0, 1.0),
+            special=i16le(sec, at + 22), tag=i16le(sec, at + 24), start_floor=bottom, start_ceiling=top})
+    }
+    let^ sd = records("SIDEDEFS", 30)
+    for^ i from^ 0 to^ sd.len / 30 - 1 {
+        let^ at = i * 30
+        let^ sector = u16le(sd, at + 28)
+        require(sector < sectors.len, "mini doom: bad sidedef sector")
+        let^ upper = name_at(sd, at + 4)
+        let^ lower = name_at(sd, at + 12)
+        let^ middle = name_at(sd, at + 20)
+        sides.push(Side{offset=point(sd, at), upper=wall_texture(upper[..]), lower=wall_texture(lower[..]),
+            middle=wall_texture(middle[..]), sector=sector})
+    }
+}
+let^ load_lines = p^ {
+    let^ ld = records("LINEDEFS", 14)
+    for^ i from^ 0 to^ ld.len / 14 - 1 {
+        let^ at = i * 14
+        let^ a = u16le(ld, at)
+        let^ b = u16le(ld, at + 2)
+        let^ front = u16le(ld, at + 10)
+        let^ back = i16le(ld, at + 12)
+        require(a < vertices.len and^ b < vertices.len, "mini doom: bad linedef vertex")
+        require(front < sides.len and^ back >= -1 and^ back < sides.len, "mini doom: bad linedef side")
+        lines.push(Line{a=vertices[a], b=vertices[b], flags=u16le(ld, at + 4), special=u16le(ld, at + 6),
+            tag=u16le(ld, at + 8), front=front, back=back})
+    }
+    let^ sg = records("SEGS", 12)
+    for^ i from^ 0 to^ sg.len / 12 - 1 {
+        let^ at = i * 12
+        let^ a = u16le(sg, at)
+        let^ b = u16le(sg, at + 2)
+        let^ line = u16le(sg, at + 6)
+        let^ direction = u16le(sg, at + 8)
+        require(a < vertices.len and^ b < vertices.len and^ line < lines.len and^ direction <= 1, "mini doom: bad seg")
+        let^ side = if^ direction = 0: lines[line].front el^: lines[line].back;
+        require(side >= 0, "mini doom: seg has no sidedef")
+        segs.push(Seg{a=vertices[a], b=vertices[b], sector=sides[side].sector})
+    }
+}
+let^ load_tree = p^ {
+    let^ ss = records("SSECTORS", 4)
+    for^ i from^ 0 to^ ss.len / 4 - 1 {
+        let^ count = u16le(ss, i * 4)
+        let^ first = u16le(ss, i * 4 + 2)
+        require(count > 0 and^ first + count <= segs.len, "mini doom: bad subsector")
+        subsectors.push(Subsector{first=first, count=count, sector=segs[first].sector})
+    }
+    let^ nd = records("NODES", 28)
+    for^ i from^ 0 to^ nd.len / 28 - 1 {
+        let^ at = i * 28
+        nodes.push(Node{origin=point(nd, at), delta=point(nd, at + 4), front=u16le(nd, at + 24),
+            back=u16le(nd, at + 26)})
+    }
+}
+
+# --- the player ------------------------------------------------------------------
+
+def^ Player { self^{ pos:F2 = F2{}, z:f32^ = 0.0, yaw:f32^ = 0.0 } }
+var^ player = Player{}
+
+let^ place_player = p^ {
+    let^ things = records("THINGS", 10)
+    for^ i from^ 0 to^ things.len / 10 - 1 {
+        let^ at = i * 10
+        if^ u16le(things, at + 6) = 1 {
+            player.pos := point(things, at)
+            player.z := sectors[sector_at(player.pos)].floor
+            player.yaw := f32^(i16le(things, at + 4)) * 3.14159265 / 180.0
+            return^
+        }
+    }
+    panic^ "mini doom: missing player-one start"
+}
+
+# --- meshes: world units become (x, height, -y) ----------------------------------
+
+def^ Vertex {
+    self^{ x:f32^ = 0.0, y:f32^ = 0.0, z:f32^ = 0.0, u:f32^ = 0.0, v:f32^ = 0.0,
+           rx:f32^ = 0.0, ry:f32^ = 0.0, rw:f32^ = 0.0, rh:f32^ = 0.0, light:f32^ = 1.0 }
+}
+
+let^ vertex = f^ p:F2, height:f32^, u:f32^, v:f32^, picture:i64^, light:f32^ -> Vertex {
+    let^ r = pictures[picture]
+    return^ Vertex{x=p.x, y=height, z=-p.y, u=u, v=v, rx=f32^(r.x), ry=f32^(r.y), rw=f32^(r.w),
+        rh=f32^(r.h), light=light}
+}
+let^ lighting = f^ sector:i64^ -> f32^ { return^ fmax(0.18, sectors[sector].light) }
+
+let^ add_wall = p^ out:ref^ grow^ Vertex[], a:F2, b:F2, bottom:f32^, top:f32^, texture:i64^,
+                   offset:F2, anchor:f32^, light:f32^ {
+    if^ texture < 0 or^ top <= bottom { return^ }
+    let^ w = f32^(pictures[texture].w)
+    let^ h = f32^(pictures[texture].h)
+    let^ u0 = offset.x / w
+    let^ u1 = (offset.x + distance2(a, b)) / w
+    let^ v0 = (anchor - top + offset.y) / h
+    let^ v1 = (anchor - bottom + offset.y) / h
+    let^ c0 = vertex(a, bottom, u0, v1, texture, light)
+    let^ c1 = vertex(b, bottom, u1, v1, texture, light)
+    let^ c2 = vertex(b, top, u1, v0, texture, light)
+    let^ c3 = vertex(a, top, u0, v0, texture, light)
+    out.push(c0) out.push(c1) out.push(c2)
+    out.push(c0) out.push(c2) out.push(c3)
+}
+let^ world_mesh = p^ out:ref^ grow^ Vertex[] {
+    for^ t from^ 0 to^ floor_triangles.len - 1 {
+        let^ triangle = floor_triangles[t]
+        let^ s = sectors[triangle.sector]
+        for^ plane from^ 0 to^ 1 {
+            let^ height = if^ plane = 0: s.floor el^: s.ceiling;
+            let^ original = if^ plane = 0: s.floor_pic el^: s.ceiling_pic;
+            let^ texture = if^ original < 0: sky_picture el^: original;
+            let^ shade = if^ original < 0: f32^(-1.0) el^: lighting(triangle.sector);
+            out.push(vertex(triangle.a, height, triangle.a.x / 64.0, triangle.a.y / 64.0, texture, shade))
+            out.push(vertex(triangle.b, height, triangle.b.x / 64.0, triangle.b.y / 64.0, texture, shade))
+            out.push(vertex(triangle.c, height, triangle.c.x / 64.0, triangle.c.y / 64.0, texture, shade))
+        }
+    }
+    for^ l from^ 0 to^ lines.len - 1 {
+        let^ line = lines[l]
+        for^ face from^ 0 to^ 1 {
+            let^ side_id = if^ face = 0: line.front el^: line.back;
+            let^ other_id = if^ face = 0: line.back el^: line.front;
+            if^ side_id < 0 { continue^ }
+            let^ side = sides[side_id]
+            let^ s = sectors[side.sector]
+            let^ a = if^ face = 0: line.a el^: line.b;
+            let^ b = if^ face = 0: line.b el^: line.a;
+            # Only the side facing the viewer contributes; this also keeps two
+            # coplanar middle textures from fighting for the depth buffer.
+            if^ cross2(b - a, player.pos - a) > 0.0 { continue^ }
+            let^ shade = lighting(side.sector) * (if^ math.abs(a.x - b.x) < 0.1: 0.88 el^: 1.0;)
+            if^ other_id < 0 {
+                if^ side.middle < 0 { continue^ }
+                let^ anchor = if^ (line.flags bitand^ 16) != 0: s.floor + f32^(pictures[side.middle].h) el^: s.ceiling;
+                add_wall(out, a, b, s.floor, s.ceiling, side.middle, side.offset, anchor, shade)
+                continue^
+            }
+            let^ other = sectors[sides[other_id].sector]
+            if^ side.upper >= 0 and^ !(s.ceiling_pic < 0 and^ other.ceiling_pic < 0) {
+                let^ anchor = if^ (line.flags bitand^ 8) != 0: s.ceiling el^: other.ceiling + f32^(pictures[side.upper].h);
+                add_wall(out, a, b, fmax(s.floor, other.ceiling), s.ceiling, side.upper, side.offset, anchor, shade)
+            }
+            if^ side.lower >= 0 {
+                let^ anchor = if^ (line.flags bitand^ 16) != 0: s.ceiling el^: other.floor;
+                add_wall(out, a, b, s.floor, fmin(s.ceiling, other.floor), side.lower, side.offset, anchor, shade)
+            }
+            if^ side.middle >= 0 {
+                let^ bottom = fmax(s.floor, other.floor)
+                let^ top = fmin(s.ceiling, other.ceiling)
+                let^ height = f32^(pictures[side.middle].h)
+                let^ anchor = if^ (line.flags bitand^ 16) != 0: bottom + height el^: top;
+                add_wall(out, a, b, fmax(bottom, anchor + side.offset.y - height),
+                    fmin(top, anchor + side.offset.y), side.middle, side.offset, anchor, shade)
+            }
+        }
+    }
+}
+
+# --- matrices for SDL_GPU clip space (y up, depth 0 to 1), column-major --------
+
+def^ M4 {
+    self^{ m:f32^[16] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0] }
+}
+let^ multiply = f^ a:M4, b:M4 -> M4 {
+    var^ out = M4{}
+    for^ c from^ 0 to^ 3 {
+        for^ r from^ 0 to^ 3 {
+            var^ sum:f32^ = 0.0
+            for^ k from^ 0 to^ 3 { sum += a.m[k * 4 + r] * b.m[c * 4 + k] }
+            out.m[c * 4 + r] := sum
+        }
+    }
+    return^ out
+}
+let^ perspective = f^ fovy:f32^, aspect:f32^, near:f32^, far:f32^ -> M4 {
+    let^ f = 1.0 / math.tan(fovy * 0.5)
+    return^ M4{m=[f / aspect, 0.0, 0.0, 0.0, 0.0, f, 0.0, 0.0, 0.0, 0.0, far / (near - far), -1.0,
+        0.0, 0.0, near * far / (near - far), 0.0]}
+}
+# A view looking from eye along a horizontal direction (dx, dz), y up.
+let^ look_along = f^ ex:f32^, ey:f32^, ez:f32^, dx:f32^, dz:f32^ -> M4 {
+    # forward f = (dx, 0, dz); side s = f x up = (-dz, 0, dx); up u = s x f = (0, 1, 0).
+    let^ sx = -dz
+    let^ sz = dx
+    return^ M4{m=[sx, 0.0, -dx, 0.0, 0.0, 1.0, 0.0, 0.0, sz, 0.0, -dz, 0.0,
+        -(sx * ex + sz * ez), -ey, dx * ex + dz * ez, 1.0]}
+}
+
+# --- GPU programs --------------------------------------------------------------------
+
+let^ world_vertex = "
+    layout(location = 0) in vec3 a_pos;
+    layout(location = 1) in vec2 a_uv;
+    layout(location = 2) in vec4 a_rectangle;
+    layout(location = 3) in float a_light;
+    layout(set = 1, binding = 0) uniform Camera { mat4 view_proj; vec4 eye; };
+    layout(location = 0) out vec2 uv;
+    layout(location = 1) flat out vec4 rectangle;
+    layout(location = 2) flat out float light;
+    layout(location = 3) out vec3 direction;
+    void main() {
+        uv = a_uv;
+        rectangle = a_rectangle;
+        light = a_light;
+        direction = a_pos - eye.xyz;
+        gl_Position = view_proj * vec4(a_pos, 1.0);
+    }
+    "
+let^ world_fragment = "
+    layout(location = 0) in vec2 uv;
+    layout(location = 1) flat in vec4 rectangle;
+    layout(location = 2) flat in float light;
+    layout(location = 3) in vec3 direction;
+    layout(set = 2, binding = 0) uniform sampler2D atlas;
+    layout(location = 0) out vec4 result;
+    void main() {
+        vec2 local = fract(uv);
+        float shade = light;
+        if (light < 0.0) {
+            float angle = atan(-direction.z, direction.x);
+            local.x = fract(-angle * 2.0 / 3.14159265);
+            local.y = clamp(0.55 - atan(direction.y, length(direction.xz)) * 0.8, 0.0, 0.99);
+            shade = 1.0;
+        } else {
+            shade *= max(0.38, 1.0 - length(direction) / 1800.0);
+            shade = floor(shade * 24.0) / 24.0;
+        }
+        vec2 texel = rectangle.xy + floor(local * rectangle.zw) + 0.5;
+        vec4 sample_color = texture(atlas, texel / vec2(2048.0, 4096.0));
+        if (sample_color.a < 0.5) discard;
+        result = vec4(sample_color.rgb * shade, 1.0);
+    }
+    "
+
+# --- entry point -----------------------------------------------------------------------
+
+var^ frames:i64^ = -1
+var^ path:string^ = "freedoom1-e1m1.wad"
+var^ argument:i64^ = 0
+repeat^ while^ argument < ....len {
+    let^ option = ...[argument]
+    if^ option = "--frames" and^ argument + 1 < ....len {
+        frames := i64^.parse(...[argument + 1]) catch^ -1
+        argument += 1
+    elif^ option = "--wad" and^ argument + 1 < ....len:
+        path := ...[argument + 1]
+        argument += 1
+    else^:
+        panic^ "mini doom: usage: mini_doom [--wad PATH] [--frames N]"
+    }
+    argument += 1
+}
+load_wad(path)
+load_pictures()
+load_map()
+place_player()
+print^("lumps ", lumps.len, " pictures ", pictures.len, " sectors ", sectors.len, " lines ", lines.len,
+    " floor triangles ", floor_triangles.len)
+
+var^ why:grow^ u8^[] = []
+if^ !gfx.open("R^: Mini Doom / Freedoom E1M1", 960, 600, gfx.WINDOW_RESIZABLE) {
+    gfx.error(ref^ why)
+    panic^ "mini doom: cannot open a window"
+}
+let^ atlas = gfx.texture2d(ATLAS_W, ATLAS_H)
+let^ uploaded = gfx.update(atlas, atlas_pixels[..])
+let^ sampler = gfx.sampler(gfx.NEAREST, gfx.CLAMP)
+let^ world_pipeline = gfx.pipeline(world_vertex, world_fragment, gfx.CULL_NONE, gfx.BLEND_NONE, true^, true^)
+if^ atlas.id = 0 or^ !uploaded or^ sampler.id = 0 or^ world_pipeline.id = 0 {
+    gfx.error(ref^ why)
+    print^("mini doom: gfx setup failed: ", string^(why[..]) catch^ "?")
+    gfx.close()
+    return^
+}
+var^ world_buffer = gfx.Buffer{}
+var^ drawn:i64^ = 0
+var^ camera:f32^[20] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0]
+repeat^ while^ gfx.frame() {
+    let^ width = f32^(gfx.width())
+    let^ height = f32^(gfx.height())
+    if^ width <= 0.0 or^ height <= 0.0 { continue^ }
+    var^ mesh:grow^ Vertex[] = []
+    world_mesh(ref^ mesh)
+    if^ world_buffer.id = 0 or^ gfx.size(world_buffer) < mesh.bytes.len {
+        if^ world_buffer.id != 0 { gfx.release(world_buffer) }
+        world_buffer := gfx.buffer_sized(gfx.BUFFER_VERTEX, imax(4096, mesh.bytes.len * 2), mesh.bytes)
+    else^:
+        gfx.update(world_buffer, mesh.bytes)
+    }
+    let^ ex = player.pos.x
+    let^ ey = player.z + 41.0
+    let^ ez = -player.pos.y
+    let^ view = look_along(ex, ey, ez, math.cos(player.yaw), -math.sin(player.yaw))
+    let^ view_proj = multiply(perspective(1.1, width / height, 1.0, 12000.0), view)
+    for^ i from^ 0 to^ 15 { camera[i] := view_proj.m[i] }
+    camera[16] := ex
+    camera[17] := ey
+    camera[18] := ez
+    if^ gfx.begin_screen(0.16, 0.19, 0.22, 1.0, true^) {
+        gfx.bind(world_pipeline)
+        gfx.bind_texture(gfx.FRAGMENT, 0, atlas, sampler)
+        gfx.bind_vertex_buffer(world_buffer)
+        gfx.push_uniforms(gfx.VERTEX, 0, camera.bytes)
+        gfx.draw(mesh.len)
+        gfx.end_pass()
+    }
+    drawn += 1
+    if^ drawn = frames { break^ }
+}
+if^ frames > 0 {
+    print^("drew ", drawn, " frames; saved mini_doom.png: ", gfx.screenshot("mini_doom.png"))
+}
+gfx.close()
