@@ -5,42 +5,42 @@ module^gfx
 # is created; resources are declared where SDL_GPU expects them (vertex
 # uniforms in set 1, fragment samplers in set 2, fragment uniforms in set 3).
 
-externC^rg_open:f^title:u8^[:], title_len:i64^, width:i64^, height:i64^, flags:i64^ -> bool^;
+externC^rg_open:p^title:u8^[:], title_len:i64^, width:i64^, height:i64^, flags:i64^-> bool^;
 externC^rg_close:p^;
-externC^rg_frame:f^ -> bool^;
+externC^rg_frame:f^-> bool^;
 externC^rg_error:f^out:u8^[:], cap:i64^ -> i64^;
-externC^rg_misuse_count:f^ -> i64^;
-externC^rg_screen_width:f^ -> i64^;
-externC^rg_screen_height:f^ -> i64^;
-externC^rg_delta_time:f^ -> f64^;
-externC^rg_time:f^ -> f64^;
-externC^rg_key_down:f^name:u8^[:], len:i64^ -> bool^;
-externC^rg_key_pressed:f^name:u8^[:], len:i64^ -> bool^;
-externC^rg_mouse_down:f^button:i64^ -> bool^;
-externC^rg_mouse_pressed:f^button:i64^ -> bool^;
-externC^rg_mouse_dx:f^ -> f32^;
-externC^rg_mouse_dy:f^ -> f32^;
-externC^rg_focused:f^ -> bool^;
-externC^rg_set_mouse_relative:f^on:bool^ -> bool^;
-externC^rg_mouse_relative:f^ -> bool^;
-externC^rg_focus_lost:f^ -> bool^;
-externC^rg_key_released:f^name:u8^[:], len:i64^ -> bool^;
-externC^rg_mouse_x:f^ -> f32^;
-externC^rg_mouse_y:f^ -> f32^;
-externC^rg_inject_key:f^name:u8^[:], len:i64^, down:bool^ -> bool^;
+externC^rg_misuse_count:f^-> i64^;
+externC^rg_screen_width:f^-> i64^;
+externC^rg_screen_height:f^-> i64^;
+externC^rg_delta_time:f^-> f64^;
+externC^rg_time:f^-> f64^;
+externC^rg_key_down:f^name:u8^[:], len:i64^-> bool^;
+externC^rg_key_pressed:f^name:u8^[:], len:i64^-> bool^;
+externC^rg_mouse_down:f^button:i64^-> bool^;
+externC^rg_mouse_pressed:f^button:i64^-> bool^;
+externC^rg_mouse_dx:f^-> f32^;
+externC^rg_mouse_dy:f^-> f32^;
+externC^rg_focused:f^-> bool^;
+externC^rg_set_mouse_relative:f^on:bool^-> bool^;
+externC^rg_mouse_relative:f^-> bool^;
+externC^rg_focus_lost:f^-> bool^;
+externC^rg_key_released:f^name:u8^[:], len:i64^-> bool^;
+externC^rg_mouse_x:f^-> f32^;
+externC^rg_mouse_y:f^-> f32^;
+externC^rg_inject_key:p^name:u8^[:], len:i64^, down:bool^-> bool^;
 externC^rg_inject_mouse:p^x:f32^, y:f32^, button:i64^, down:bool^;
-externC^rg_inject_focus:f^focused:bool^ -> bool^;
-externC^rg_create_buffer:f^usage:i64^, size:i64^, data:u8^[:], len:i64^ -> u32^;
-externC^rg_update_buffer:f^buffer:u32^, offset:i64^, data:u8^[:], len:i64^ -> bool^;
-externC^rg_buffer_size:f^buffer:u32^ -> i64^;
+externC^rg_inject_focus:p^focused:bool^-> bool^;
+externC^rg_create_buffer:f^usage:i64^, size:i64^, data:u8^[:], len:i64^-> u32^;
+externC^rg_update_buffer:f^buffer:u32^, offset:i64^, data:u8^[:], len:i64^-> bool^;
+externC^rg_buffer_size:f^buffer:u32^-> i64^;
 externC^rg_release_buffer:p^buffer:u32^;
-externC^rg_create_texture:f^format:i64^, usage:i64^, width:i64^, height:i64^ -> u32^;
-externC^rg_update_texture:f^texture:u32^, data:u8^[:], len:i64^ -> bool^;
+externC^rg_create_texture:p^format:i64^, usage:i64^, width:i64^, height:i64^-> u32^;
+externC^rg_update_texture:p^texture:u32^, data:u8^[:], len:i64^-> bool^;
 externC^rg_release_texture:p^texture:u32^;
-externC^rg_create_sampler:f^filter:i64^, wrap:i64^ -> u32^;
-externC^rg_create_pipeline:f^vs:u8^[:], vs_len:i64^, fs:u8^[:], fs_len:i64^, cull:i64^, blend:i64^, depth_test:bool^, depth_write:bool^, formats:u8^[:] -> u32^;
+externC^rg_create_sampler:p^filter:i64^, wrap:i64^-> u32^;
+externC^rg_create_pipeline:p^vs:u8^[:], vs_len:i64^, fs:u8^[:], fs_len:i64^, cull:i64^, blend:i64^, depth_test:bool^, depth_write:bool^, formats:u8^[:]-> u32^;
 externC^rg_release_pipeline:p^pipeline:u32^;
-externC^rg_begin_screen:f^r:f32^, g:f32^, b:f32^, a:f32^, with_depth:bool^ -> bool^;
+externC^rg_begin_screen:p^r:f32^, g:f32^, b:f32^, a:f32^, with_depth:bool^-> bool^;
 externC^rg_end_pass:p^;
 externC^rg_bind_pipeline:p^pipeline:u32^;
 externC^rg_bind_vertex_buffer:p^slot:i64^, buffer:u32^, offset:i64^;
@@ -48,7 +48,7 @@ externC^rg_bind_texture:p^stage:i64^, slot:i64^, texture:u32^, sampler:u32^;
 externC^rg_push_uniforms:p^stage:i64^, slot:i64^, data:u8^[:], len:i64^;
 externC^rg_viewport:p^x:f32^, y:f32^, w:f32^, h:f32^;
 externC^rg_draw:p^vertices:i64^;
-externC^rg_screenshot:f^path:u8^[:], len:i64^ -> bool^;
+externC^rg_screenshot:p^path:u8^[:], len:i64^ -> bool^;
 
 # open() flags.
 public^let^WINDOW_RESIZABLE:i64^ = 1
@@ -84,95 +84,97 @@ public^let^MOUSE_LEFT:i64^ = 1
 
 # A handle is a u32 that is 0 when nothing was made.
 public^def^Buffer {
-    self^{ id:u32^ = 0 },
-    update = f^self^, data:u8^[:] -> bool^ { rg_update_buffer(self^.id, 0, data, data.len) },
-    size = f^self^ -> i64^ { rg_buffer_size(self^.id) },
-    bind_vertex_buffer = p^self^ { rg_bind_vertex_buffer(0, self^.id, 0) }
-    release = p^self^ { rg_release_buffer(self^.id) }
+    self^{ id:u32^ = 0 }
+    update = p^self^, data:u8^[:] { return^rg_update_buffer(self^.id, 0, data, data.len) }
+    size = f^self^-> i64^{ rg_buffer_size(self^.id) }
+    bind = p^self^{ rg_bind_vertex_buffer(0, self^.id, 0) }
+    dispose = p^self^{ rg_release_buffer(self^.id) }
 }
 
 public^def^Texture {
-    self^{ id:u32^ = 0 },
-    update = f^self^, rgba:u8^[:] -> bool^ { rg_update_texture(self^.id, rgba, rgba.len) },
-    release = p^self^ { rg_release_texture(self^.id) }
+    self^{ id:u32^ = 0 }
+    update = p^self^, rgba:u8^[:] { return^rg_update_texture(self^.id, rgba, rgba.len) }
+    dispose = p^self^{ rg_release_texture(self^.id) }
 }
 
 public^def^Pipeline {
     self^{ id:u32^ = 0 },
-    bind = p^self^ { rg_bind_pipeline(self^.id) }
-    release = p^self^ { rg_release_pipeline(self^.id) }
+    bind = p^self^{ rg_bind_pipeline(self^.id) }
+    dispose = p^self^{ rg_release_pipeline(self^.id) }
 }
 
 public^struct^Sampler { id:u32^ = 0 }
 
-public^let^open = f^title:string^, width:i64^, height:i64^, flags:i64^ -> bool^ {
-    rg_open(title.bytes, title.bytes.len, width, height, flags)
+public^let^open = p^title:string^, width:i64^, height:i64^, flags:i64^{
+    return^rg_open(title.bytes, title.bytes.len, width, height, flags)
 }
-public^let^close = p^ { rg_close() }
+public^let^close = p^{ rg_close() }
 
 # Polls events and presents the previous frame; false once the window is closed.
-public^let^frame = f^ -> bool^ { rg_frame() }
+public^let^frame = f^{ rg_frame() }
 
 # Replaces text with why the last call failed, from the gfx layer or a
 # shader compile.
-public^let^error = p^text:ref^ grow^ u8^[] {
+public^let^error = p^text:ref^grow^u8^[] {
     text.clear()
-    for^ 1 to^ 1024 { text.push(0) }
-    let^ n = rg_error(text[..], 1024)
+    for^1 to^1024 { text.push(0) }
+    let^n = rg_error(text[..], 1024)
     text.truncate(n)
 }
 
-public^let^misuse_count = f^ -> i64^ { return^ rg_misuse_count() }
-public^let^width = f^ -> i64^ { return^ rg_screen_width() }
-public^let^height = f^ -> i64^ { return^ rg_screen_height() }
-public^let^delta_time = f^ -> f64^ { return^ rg_delta_time() }
-public^let^time = f^ -> f64^ { return^ rg_time() }
+public^let^misuse_count = f^{ rg_misuse_count() }
+public^let^width = f^{ rg_screen_width() }
+public^let^height = f^{ rg_screen_height() }
+public^let^delta_time = f^{ rg_delta_time() }
+public^let^time = f^{ rg_time() }
 
-public^let^key_down = f^name:string^ -> bool^ { return^ rg_key_down(name.bytes, name.bytes.len) }
-public^let^key_pressed = f^name:string^ -> bool^ { return^ rg_key_pressed(name.bytes, name.bytes.len) }
-public^let^mouse_down = f^button:i64^ -> bool^ { return^ rg_mouse_down(button) }
-public^let^mouse_pressed = f^button:i64^ -> bool^ { return^ rg_mouse_pressed(button) }
-public^let^mouse_dx = f^ -> f32^ { return^ rg_mouse_dx() }
-public^let^mouse_dy = f^ -> f32^ { return^ rg_mouse_dy() }
-public^let^focused = f^ -> bool^ { return^ rg_focused() }
-public^let^set_mouse_relative = f^on:bool^ -> bool^ { return^ rg_set_mouse_relative(on) }
-public^let^mouse_relative = f^ -> bool^ { return^ rg_mouse_relative() }
-public^let^focus_lost = f^ -> bool^ { return^ rg_focus_lost() }
-public^let^key_released = f^name:string^ -> bool^ { return^ rg_key_released(name.bytes, name.bytes.len) }
-public^let^mouse_x = f^ -> f32^ { return^ rg_mouse_x() }
-public^let^mouse_y = f^ -> f32^ { return^ rg_mouse_y() }
+public^let^key_down = f^name:string^{ rg_key_down(name.bytes, name.bytes.len) }
+public^let^key_pressed = f^name:string^{ rg_key_pressed(name.bytes, name.bytes.len) }
+public^let^mouse_down = f^button:i64^{ rg_mouse_down(button) }
+public^let^mouse_pressed = f^button:i64^{ rg_mouse_pressed(button) }
+public^let^mouse_dx = f^{ rg_mouse_dx() }
+public^let^mouse_dy = f^{ rg_mouse_dy() }
+public^let^focused = f^{ rg_focused() }
+public^let^set_mouse_relative = f^on:bool^{ rg_set_mouse_relative(on) }
+public^let^mouse_relative = f^{ rg_mouse_relative() }
+public^let^focus_lost = f^{ rg_focus_lost() }
+public^let^key_released = f^name:string^{ rg_key_released(name.bytes, name.bytes.len) }
+public^let^mouse_x = f^{ rg_mouse_x() }
+public^let^mouse_y = f^{ rg_mouse_y() }
 
 # Input as if from the devices, seen at the next frame(): for tests.
-public^let^inject_key = p^name:string^, down:bool^ -> bool^ { return^ rg_inject_key(name.bytes, name.bytes.len, down) }
-public^let^inject_mouse = p^x:f32^, y:f32^, button:i64^, down:bool^ { rg_inject_mouse(x, y, button, down) }
-public^let^inject_focus = p^focused:bool^ -> bool^ { return^ rg_inject_focus(focused) }
+public^let^inject_key = p^name:string^, down:bool^{ return^rg_inject_key(name.bytes, name.bytes.len, down) }
+public^let^inject_mouse = p^x:f32^, y:f32^, button:i64^, down:bool^{ rg_inject_mouse(x, y, button, down) }
+public^let^inject_focus = p^focused:bool^{ return^rg_inject_focus(focused) }
 
-public^let^buffer = f^usage:i64^, data:u8^[:] -> Buffer {
+public^let^buffer = p^usage:i64^, data:u8^[:] {
     return^Buffer{id=rg_create_buffer(usage, data.len, data, data.len)}
 }
 # A buffer of size bytes, starting with data; update() replaces from the start.
-public^let^buffer_sized = f^usage:i64^, size:i64^, data:u8^[:] -> Buffer {
+public^let^buffer_sized = p^usage:i64^, size:i64^, data:u8^[:] {
     return^Buffer{id=rg_create_buffer(usage, size, data, data.len)}
 }
 
-public^let^texture2d = f^width:i64^, height:i64^ -> Texture {
-    return^ Texture{id=rg_create_texture(RGBA8, SAMPLED, width, height)}
+public^let^texture2d = p^width:i64^, height:i64^{
+    return^Texture{id=rg_create_texture(RGBA8, SAMPLED, width, height)}
 }
-public^let^sampler = f^filter:i64^, wrap:i64^ -> Sampler { Sampler{id=rg_create_sampler(filter, wrap)} }
+public^let^sampler = p^filter:i64^, wrap:i64^{ return^Sampler{id=rg_create_sampler(filter, wrap)} }
 
 # A pipeline from vertex and fragment GLSL. The vertex format of each
 # location is the shader input's own type.
-public^let^pipeline = f^vs:string^, fs:string^, cull:i64^, blend:i64^, depth_test:bool^, depth_write:bool^ -> Pipeline {
+public^let^pipeline = p^vs:string^, fs:string^, cull:i64^, blend:i64^, depth_test:bool^, depth_write:bool^ -> Pipeline {
     var^formats = grow^u8^[]
     for^ 1 to^ 16 { formats.push(0) }
     return^Pipeline{id=rg_create_pipeline(vs.bytes, vs.bytes.len, fs.bytes, fs.bytes.len, cull, blend, depth_test, depth_write, formats[..])}
 }
 
 # Draws go between begin_screen and end_pass. The screen is cleared to the color.
-public^let^begin_screen = f^r:f32^, g:f32^, b:f32^, a:f32^, with_depth:bool^ -> bool^ { rg_begin_screen(r, g, b, a, with_depth) }
-public^let^end_pass = p^ { rg_end_pass() }
+public^let^begin_screen = p^r:f32^, g:f32^, b:f32^, a:f32^, with_depth:bool^{
+    return^rg_begin_screen(r, g, b, a, with_depth)
+}
+public^let^end_pass = p^{ rg_end_pass() }
 public^let^bind_texture = p^stage:i64^, slot:i64^, t:Texture, s:Sampler { rg_bind_texture(stage, slot, t.id, s.id) }
 public^let^push_uniforms = p^stage:i64^, slot:i64^, data:u8^[:] { rg_push_uniforms(stage, slot, data, data.len) }
-public^let^viewport = p^x:f32^, y:f32^, w:f32^, h:f32^ { rg_viewport(x, y, w, h) }
-public^let^draw = p^vertices:i64^ { rg_draw(vertices) }
-public^let^screenshot = f^path:string^ -> bool^ { rg_screenshot(path.bytes, path.bytes.len) }
+public^let^viewport = p^x:f32^, y:f32^, w:f32^, h:f32^{ rg_viewport(x, y, w, h) }
+public^let^draw = p^vertices:i64^{ rg_draw(vertices) }
+public^let^screenshot = p^path:string^{ return^rg_screenshot(path.bytes, path.bytes.len) }

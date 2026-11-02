@@ -1,16 +1,16 @@
 import^gfx
 
-let^ ok = gfx.open("rhat-gfx clear", 640, 360, 0)
-if^ !ok {
-    var^ why:grow^ u8^[] = []
-    gfx.error(ref^ why)
+let^ok = gfx.open("rhat-gfx clear", 640, 360, 0)
+if^!ok {
+    var^why:grow^u8^[] = []
+    gfx.error(ref^why)
     print^("open failed: ", string^(why[..]) catch^ "?")
     return^
 }
-var^ frames:i64^ = 0
-repeat^ while^ gfx.frame() and^ frames < 90 {
-    let^ t = f32^(frames) / 90.0
-    if^ gfx.begin_screen(t, 0.2, 1.0 - t, 1.0, false^) {
+var^frames:i64^ = 0
+repeat^while^gfx.frame() and^ frames < 90 {
+    let^t = f32^(frames) / 90.0
+    if^gfx.begin_screen(t, 0.2, 1.0 - t, 1.0, false^) {
         gfx.end_pass()
     }
     frames := frames + 1
