@@ -21,7 +21,7 @@ let^fs = "
     void main() { result = texture(tex, uv); }
     "
 
-var^why = grow^u8^[]
+var^why = u8^[grow^]
 if^!gfx.open("rhat-gfx texture", 640, 360, 0) {
     gfx.error(ref^ why)
     print^("open failed: ", string^(why[..]) catch^ "?")
@@ -30,7 +30,7 @@ if^!gfx.open("rhat-gfx texture", 640, 360, 0) {
 
 # An 8 x 8 checkerboard, orange and dark blue.
 let^size:i64^ = 8
-var^pixels = grow^u8^[]
+var^pixels = u8^[grow^]
 var^y:i64^ = 0
 repeat^while^y < size {
     var^x:i64^ = 0

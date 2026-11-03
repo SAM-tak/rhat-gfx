@@ -6,8 +6,9 @@ module^audio
 
 externC^rg_audio_open:p^sample_rate:i64^-> bool^;
 externC^rg_audio_close:p^;
-externC^rg_audio_create_sound:f^samples:f32^[:], count:i64^, sample_rate:i64^, channels:i64^-> u64^;
-externC^rg_audio_error:f^out:u8^[:], cap:i64^-> i64^;
+externC^rg_audio_create_sound:f^samples:f32^[..], count:i64^, sample_rate:i64^,
+    channels:i64^-> u64^;
+externC^rg_audio_error:f^out:u8^[..], cap:i64^-> i64^;
 externC^rg_audio_release_sound:p^sound:u64^-> bool^;
 externC^rg_audio_play:p^sound:u64^, volume:f32^, pan:f32^, pitch:f32^, loop:bool^-> u64^;
 externC^rg_audio_playing:f^voice:u64^-> bool^;
@@ -16,16 +17,16 @@ externC^rg_audio_stop_all:p^;
 
 # A handle is 0 when nothing was made.
 public^def^Sound {
-    self^{ id:u64^ = 0 }
+    self^{ id:u64^= 0 }
     dispose = p^self^{ rg_audio_release_sound(self^.id) }
     # Volume from 0, pan from -1 (left) to 1 (right), pitch 1 for the recorded rate.
     play = p^self^, volume:f32^, pan:f32^, pitch:f32^, loop:bool^{
-        return^Voice{id=rg_audio_play(self^.id, volume, pan, pitch, loop)}
+        return^Voice{id = rg_audio_play(self^.id, volume, pan, pitch, loop)}
     }
 }
 
 public^def^Voice {
-    self^{ id:u64^ = 0 }
+    self^{ id:u64^= 0 }
     playing = f^self^{ return^rg_audio_playing(self^.id) }
     stop = p^self^{ rg_audio_stop(self^.id) }
 }
@@ -35,15 +36,15 @@ public^let^open = p^sample_rate:i64^{ return^rg_audio_open(sample_rate) }
 public^let^close = p^{ rg_audio_close() }
 
 # Replaces text with why the last call failed.
-public^let^error = p^text:ref^ grow^ u8^[] {
+public^let^error = p^text:ref^u8^[grow^] {
     text.clear()
-    for^ 1 to^ 1024 { text.push(0) }
-    let^ n = rg_audio_error(text[..], 1024)
+    for^1 to^1024 { text.push(0) }
+    let^n = rg_audio_error(text[..], 1024)
     text.truncate(n)
 }
 
-public^let^sound = p^samples:f32^[:], sample_rate:i64^, channels:i64^{
-    return^Sound{id=rg_audio_create_sound(samples, samples.len, sample_rate, channels)}
+public^let^sound = p^samples:f32^[..], sample_rate:i64^, channels:i64^{
+    return^Sound{id = rg_audio_create_sound(samples, samples.len, sample_rate, channels)}
 }
 
 public^let^stop_all = p^{ rg_audio_stop_all() }

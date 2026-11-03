@@ -16,7 +16,7 @@ let^fs = "
     void main() { result = vec4(color, 1.0); }
     "
 
-var^why = grow^u8^[]
+var^why = u8^[grow^]
 let^ok = gfx.open("rhat-gfx buffer", 640, 360, 0)
 if^!ok {
     gfx.error(ref^why)

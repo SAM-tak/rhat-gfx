@@ -2,7 +2,7 @@ import^gfx
 
 let^ok = gfx.open("rhat-gfx clear", 640, 360, 0)
 if^!ok {
-    var^why:grow^u8^[] = []
+    var^why:u8^[grow^] = []
     gfx.error(ref^why)
     print^("open failed: ", string^(why[..]) catch^ "?")
     return^
