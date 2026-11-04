@@ -171,8 +171,9 @@ public^let^buffer_sized = p^usage:i64^, size:i64^, data:u8^[..] {
 public^let^texture2d = p^width:i64^, height:i64^{
     return^Texture{id = rg_create_texture(RGBA8, SAMPLED, width, height)}
 }
-public^let^sampler = p^filter:i64^,
-    wrap:i64^{ return^Sampler{id = rg_create_sampler(filter, wrap)} }
+public^let^sampler = p^filter:i64^, wrap:i64^{
+    return^Sampler{id = rg_create_sampler(filter, wrap)}
+}
 
 # A pipeline from vertex and fragment GLSL. The vertex format of each
 # location is the shader input's own type, unless formats gives a nonzero
@@ -209,12 +210,24 @@ public^let^pipeline = p^vs:string^, fs:string^, cull:i64^, blend:i64^, depth_tes
 public^let^begin_screen = p^r:f32^, g:f32^, b:f32^, a:f32^, with_depth:bool^{
     return^rg_begin_screen(r, g, b, a, with_depth)
 }
-public^let^end_pass = p^{ rg_end_pass() }
-public^let^bind_texture = p^stage:i64^, slot:i64^, t:Texture,
-    s:Sampler { rg_bind_texture(stage, slot, t.id, s.id) }
-public^let^push_uniforms = p^stage:i64^, slot:i64^,
-    data:u8^[..] { rg_push_uniforms(stage, slot, data, data.len) }
-public^let^viewport = p^x:f32^, y:f32^, w:f32^, h:f32^{ rg_viewport(x, y, w, h) }
-public^let^draw = p^vertices:i64^{ rg_draw(vertices) }
-public^let^draw_indexed = p^indices:i64^{ rg_draw_indexed(indices) }
-public^let^screenshot = p^path:string^{ return^rg_screenshot(path.bytes, path.bytes.len) }
+public^let^end_pass = p^{
+    rg_end_pass()
+}
+public^let^bind_texture = p^stage:i64^, slot:i64^, t:Texture, s:Sampler {
+    rg_bind_texture(stage, slot, t.id, s.id)
+}
+public^let^push_uniforms = p^stage:i64^, slot:i64^, data:u8^[..] {
+    rg_push_uniforms(stage, slot, data, data.len)
+}
+public^let^viewport = p^x:f32^, y:f32^, w:f32^, h:f32^{
+    rg_viewport(x, y, w, h)
+}
+public^let^draw = p^vertices:i64^{
+    rg_draw(vertices)
+}
+public^let^draw_indexed = p^indices:i64^{
+    rg_draw_indexed(indices)
+}
+public^let^screenshot = p^path:string^{
+    return^rg_screenshot(path.bytes, path.bytes.len)
+}

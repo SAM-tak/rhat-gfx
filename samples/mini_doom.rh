@@ -137,7 +137,7 @@ struct^Picture {
 }
 var^pictures = Picture[grow^]{}
 var^atlas_pixels = u8^[grow^]{}
-var^shelf:i64^[max^3] = {0, 0, 0}   # x, y and height of the current shelf
+var^shelf:i64^[max^3] = { 0, 0, 0 }   # x, y and height of the current shelf
 var^palette = u8^[grow^]{}
 var^font = i64^[grow^]{}
 var^sky_picture:i64^= 0
