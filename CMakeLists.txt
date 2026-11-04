@@ -4,7 +4,7 @@
 # R^ modules reach them through the shim in src/shim.
 
 cmake_minimum_required(VERSION 3.20)
-project(rhat_gfx C)
+project(rhat_gfx VERSION 0.1.0 LANGUAGES C)
 
 set(RHAT_GFX_SDL "${CMAKE_CURRENT_SOURCE_DIR}/third_party/SDL" CACHE PATH "The SDL source tree")
 if(NOT EXISTS "${RHAT_GFX_SDL}/CMakeLists.txt")

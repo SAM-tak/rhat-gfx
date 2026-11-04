@@ -1,5 +1,5 @@
 import^audio
-let^math = import^ std.math
+let^math = import^std.math
 
 # A quarter second of a 440 Hz tone, started on the default device. R^ has no
 # sleep yet, so the program checks that it started and closes at once.
@@ -7,11 +7,11 @@ var^why = u8^[grow^]{}
 let^rate:i64^= 48000
 if^!audio.open(rate) {
     audio.error(ref^why)
-    print^("no audio device: ", string^(why[..]) catch^ "?")
+    print^("no audio device: ", string^(why[..]) catch^"?")
     return^
 }
 var^samples = f32^[grow^]{}
-var^i:i64^ = 0
+var^i:i64^= 0
 repeat^while^i < rate / 4 {
     let^t = f64^(i) / f64^(rate)
     samples.push(f32^(0.2 * math.sin(6.283185307 * 440.0 * t)))
