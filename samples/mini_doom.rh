@@ -104,10 +104,8 @@ let^lump = f^name:u8^[..] -> u8^[..] {
 }
 
 let^load_wad = p^path:string^{
-    let^loaded = fs.read(
-        path,
-        ref^wad
-    ) catch^panic^"mini doom: cannot read the WAD (give --wad PATH)"
+    let^loaded = fs.read(path, ref^wad)
+        catch^panic^"mini doom: cannot read the WAD (give --wad PATH)"
     require(wad.len >= 12, "mini doom: truncated WAD header")
     let^signature = wad[0 .. 4]
     require(
@@ -146,7 +144,9 @@ var^sky_picture:i64^= 0
 
 let^find_picture = f^name:u8^[..], kind:i64^{
     for^i from^0 to^pictures.len - 1 {
-        if^pictures[i].kind = kind and^same(pictures[i].name[..], name) { return^i }
+        if^pictures[i].kind = kind and^same(pictures[i].name[..], name) {
+            return^i
+        }
     }
     return^-1
 }
