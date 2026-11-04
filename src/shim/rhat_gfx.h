@@ -30,6 +30,7 @@ uint8_t rg_mouse_down(int64_t button);
 uint8_t rg_mouse_pressed(int64_t button);
 float rg_mouse_dx(void);
 float rg_mouse_dy(void);
+float rg_mouse_wheel(void);
 uint8_t rg_focused(void);
 uint8_t rg_set_mouse_relative(uint8_t on);
 uint8_t rg_mouse_relative(void);
@@ -66,10 +67,12 @@ uint8_t rg_begin_screen(float r, float g, float b, float a, uint8_t with_depth);
 void rg_end_pass(void);
 void rg_bind_pipeline(uint32_t pipeline);
 void rg_bind_vertex_buffer(int64_t slot, uint32_t buffer, int64_t offset);
+void rg_bind_index_buffer(uint32_t buffer, int64_t index_size, int64_t offset);
 void rg_bind_texture(int64_t stage, int64_t slot, uint32_t texture, uint32_t sampler);
 void rg_push_uniforms(int64_t stage, int64_t slot, const uint8_t *data, int64_t len);
 void rg_viewport(float x, float y, float w, float h);
 void rg_draw(int64_t vertices);
+void rg_draw_indexed(int64_t indices);
 uint8_t rg_screenshot(const uint8_t *path, int64_t len);
 
 /* Audio: finite f32 PCM, mono or interleaved stereo. Sounds and voices are

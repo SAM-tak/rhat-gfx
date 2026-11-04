@@ -17,7 +17,7 @@ let^fs = "
     void main() { result = vec4(color, 1.0); }
     "
 
-var^why = u8^[grow^]
+var^why = u8^[grow^]{}
 let^ok = gfx.open("rhat-gfx triangle", 640, 360, 0)
 if^!ok {
     gfx.error(ref^why)

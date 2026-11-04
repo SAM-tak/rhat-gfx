@@ -20,6 +20,7 @@ externC^rg_mouse_down:f^button:i64^-> bool^;
 externC^rg_mouse_pressed:f^button:i64^-> bool^;
 externC^rg_mouse_dx:f^-> f32^;
 externC^rg_mouse_dy:f^-> f32^;
+externC^rg_mouse_wheel:f^-> f32^;
 externC^rg_focused:f^-> bool^;
 externC^rg_set_mouse_relative:f^on:bool^-> bool^;
 externC^rg_mouse_relative:f^-> bool^;
@@ -45,10 +46,12 @@ externC^rg_begin_screen:p^r:f32^, g:f32^, b:f32^, a:f32^, with_depth:bool^-> boo
 externC^rg_end_pass:p^;
 externC^rg_bind_pipeline:p^pipeline:u32^;
 externC^rg_bind_vertex_buffer:p^slot:i64^, buffer:u32^, offset:i64^;
+externC^rg_bind_index_buffer:p^buffer:u32^, index_size:i64^, offset:i64^;
 externC^rg_bind_texture:p^stage:i64^, slot:i64^, texture:u32^, sampler:u32^;
 externC^rg_push_uniforms:p^stage:i64^, slot:i64^, data:u8^[..], len:i64^;
 externC^rg_viewport:p^x:f32^, y:f32^, w:f32^, h:f32^;
 externC^rg_draw:p^vertices:i64^;
+externC^rg_draw_indexed:p^indices:i64^;
 externC^rg_screenshot:p^path:u8^[..], len:i64^-> bool^;
 
 # open() flags.
@@ -80,8 +83,11 @@ public^let^VERTEX_FLOAT:u8^= 1
 public^let^VERTEX_FLOAT2:u8^= 2
 public^let^VERTEX_FLOAT3:u8^= 3
 public^let^VERTEX_FLOAT4:u8^= 4
+public^let^VERTEX_UBYTE4_NORM:u8^= 13
 
 public^let^MOUSE_LEFT:i64^= 1
+public^let^MOUSE_MIDDLE:i64^= 2
+public^let^MOUSE_RIGHT:i64^= 3
 
 # A handle is a u32 that is 0 when nothing was made.
 public^def^Buffer {
@@ -89,6 +95,8 @@ public^def^Buffer {
     update = p^self^, data:u8^[..] { return^rg_update_buffer(self^.id, 0, data, data.len) }
     size = f^self^-> i64^{ rg_buffer_size(self^.id) }
     bind = p^self^{ rg_bind_vertex_buffer(0, self^.id, 0) }
+    # Binds an index buffer of u32^ indices for draw_indexed.
+    bind_index = p^self^{ rg_bind_index_buffer(self^.id, 4, 0) }
     dispose = p^self^{ rg_release_buffer(self^.id) }
 }
 
@@ -135,6 +143,8 @@ public^let^mouse_down = f^button:i64^{ rg_mouse_down(button) }
 public^let^mouse_pressed = f^button:i64^{ rg_mouse_pressed(button) }
 public^let^mouse_dx = f^{ rg_mouse_dx() }
 public^let^mouse_dy = f^{ rg_mouse_dy() }
+# How far the wheel turned this frame; positive is away from the user.
+public^let^mouse_wheel = f^{ rg_mouse_wheel() }
 public^let^focused = f^{ rg_focused() }
 public^let^set_mouse_relative = f^on:bool^{ rg_set_mouse_relative(on) }
 public^let^mouse_relative = f^{ rg_mouse_relative() }
@@ -165,11 +175,13 @@ public^let^sampler = p^filter:i64^,
     wrap:i64^{ return^Sampler{id = rg_create_sampler(filter, wrap)} }
 
 # A pipeline from vertex and fragment GLSL. The vertex format of each
-# location is the shader input's own type.
-public^let^pipeline = p^vs:string^, fs:string^, cull:i64^, blend:i64^, depth_test:bool^,
-    depth_write:bool^-> Pipeline {
+# location is the shader input's own type, unless formats gives a nonzero
+# VERTEX_* for that location (such as VERTEX_UBYTE4_NORM for a u8^[4] color).
+let^make_pipeline = p^vs:string^, fs:string^, cull:i64^, blend:i64^, depth_test:bool^,
+    depth_write:bool^, given:u8^[..] -> Pipeline {
     var^formats = u8^[grow^]{}
     for^1 to^16 { formats.push(0) }
+    for^i from^0 to^given.len - 1 { formats[i] := given[i] }
     return^Pipeline{
         id = rg_create_pipeline(
             vs.bytes,
@@ -184,6 +196,14 @@ public^let^pipeline = p^vs:string^, fs:string^, cull:i64^, blend:i64^, depth_tes
         )
     }
 }
+public^let^pipeline = p^vs:string^, fs:string^, cull:i64^, blend:i64^, depth_test:bool^,
+    depth_write:bool^-> Pipeline {
+    return^make_pipeline(vs, fs, cull, blend, depth_test, depth_write, "".bytes)
+}
+& p^vs:string^, fs:string^, cull:i64^, blend:i64^, depth_test:bool^, depth_write:bool^,
+    formats:u8^[..] -> Pipeline {
+    return^make_pipeline(vs, fs, cull, blend, depth_test, depth_write, formats)
+}
 
 # Draws go between begin_screen and end_pass. The screen is cleared to the color.
 public^let^begin_screen = p^r:f32^, g:f32^, b:f32^, a:f32^, with_depth:bool^{
@@ -196,4 +216,5 @@ public^let^push_uniforms = p^stage:i64^, slot:i64^,
     data:u8^[..] { rg_push_uniforms(stage, slot, data, data.len) }
 public^let^viewport = p^x:f32^, y:f32^, w:f32^, h:f32^{ rg_viewport(x, y, w, h) }
 public^let^draw = p^vertices:i64^{ rg_draw(vertices) }
+public^let^draw_indexed = p^indices:i64^{ rg_draw_indexed(indices) }
 public^let^screenshot = p^path:string^{ return^rg_screenshot(path.bytes, path.bytes.len) }

@@ -12,7 +12,7 @@ let^check = p^what:string^, ok:bool^, count:ref^i64^{
     }
 }
 
-var^why = u8^[grow^]
+var^why = u8^[grow^]{}
 if^!gfx.open("rhat-gfx input", 320, 200, gfx.WINDOW_HIDDEN) {
     gfx.error(ref^ why)
     print^("open failed: ", string^(why[..]) catch^ "?")

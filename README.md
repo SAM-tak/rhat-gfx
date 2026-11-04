@@ -17,6 +17,7 @@ Goose の `embed_shader` が使うシェーダコンパイラ（cute_spirv）を
 | `third_party/SDL` | SDL3（サブモジュール、shallow） |
 | `test/` | `clear.rh`（画面クリア）、`triangle.rh`（シェーダと描画）、`buffer.rh`（頂点バッファ）、`texture.rh`（テクスチャ・サンプラー・ユニフォーム）、`input.rh`（注入した入力の検査）、`audio.rh`（音の再生開始） |
 | `samples/mini_doom.rh` | Goose の `31_mini_doom.goose` の移植。Freedoom E1M1 の WAD を読み、壁・床・スプライト・HUD・音まで動く小さな Doom 風ゲーム |
+| `samples/mini_minecraft.rh` | Goose の `30_mini_minecraft.goose` の移植。地形・洞窟・木・テクスチャ・空・フォントまでコードで作る小さなブロックの世界。採掘・クラフト・設置・セーブ |
 | `scripts/run.ps1` | ネイティブ層をビルドし、R^ のプログラムをリンクして実行する（Windows） |
 
 ## 試す
@@ -32,17 +33,29 @@ git submodule update --init
 mini doom は WAD のパスを渡して実行します（WAD は Goose の `samples/data/freedoom1-e1m1.wad`）。
 
 ```powershell
-.\scriptsun.ps1 samples\mini_doom.rh -Arguments '--wad','..\goose\samples\datareedoom1-e1m1.wad'
+.\scripts\run.ps1 samples\mini_doom.rh -Arguments '--wad','..\goose\samples\data\freedoom1-e1m1.wad'
 ```
 
 WASD で移動、Shift で走る、マウスか左右キーで旋回、E/Space で使用、クリックか Ctrl で射撃、1〜4 で武器、
 Tab でマップ、H でヘルプ、Escape で一時停止、F12 でスクリーンショット。`--frames N` で N フレーム描いて
 `mini_doom.png` を保存して終わり、`--walk` は W を押し続けます（試験用）。
 
+mini minecraft は引数なしで動きます。`--test` は窓を開かずにゲームの検査だけを行い、`--frames N` は N フレーム描いて
+`mini_minecraft.png` を保存して終わり、`--seed N` で地形が変わります。
+
+```powershell
+.\scripts\run.ps1 samples\mini_minecraft.rh -Arguments '--test'
+```
+
+WASD で移動、Space でジャンプ・泳ぐ、Shift で走る、Ctrl で忍び足、マウスか矢印キーで視点、左クリック長押しで採掘、
+右クリックか E で設置、1〜8 かホイールで選択、中クリックで狙ったものを選択、C でクラフト、H でヘルプ、
+F5 でセーブ、F9 でロード、F12 でスクリーンショット。
+
 ## 状況
 
-- 動作確認済み（Windows）: ウィンドウとフレームループ、GLSL のコンパイル、頂点バッファ（`a.bytes`）、テクスチャとサンプラー、
-  ユニフォーム、キーボード・マウス・フォーカスの入力、音の再生、スクリーンショット。
+- 動作確認済み（Windows）: ウィンドウとフレームループ、GLSL のコンパイル、頂点バッファ（`a.bytes`）、
+  インデックスバッファ（`bind_index` と `draw_indexed`、u32^ の添字）、頂点フォーマットの指定（`pipeline` の formats）、テクスチャとサンプラー、
+  ユニフォーム、マウスホイール、キーボード・マウス・フォーカスの入力、音の再生、スクリーンショット。
 - 入力は、フォーカスのないウィンドウでは捨てられます（goose_gfx の仕様）。隠したウィンドウで試すときは `inject_focus(true^)` を先に送ります。
 - Linux・macOS のビルドとスクリプトは未整備です。
 

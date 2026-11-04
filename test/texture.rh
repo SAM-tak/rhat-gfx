@@ -21,7 +21,7 @@ let^fs = "
     void main() { result = texture(tex, uv); }
     "
 
-var^why = u8^[grow^]
+var^why = u8^[grow^]{}
 if^!gfx.open("rhat-gfx texture", 640, 360, 0) {
     gfx.error(ref^ why)
     print^("open failed: ", string^(why[..]) catch^ "?")
@@ -30,7 +30,7 @@ if^!gfx.open("rhat-gfx texture", 640, 360, 0) {
 
 # An 8 x 8 checkerboard, orange and dark blue.
 let^size:i64^ = 8
-var^pixels = u8^[grow^]
+var^pixels = u8^[grow^]{}
 var^y:i64^ = 0
 repeat^while^y < size {
     var^x:i64^ = 0
@@ -50,10 +50,10 @@ let^uploaded = texture.update(pixels[..])
 let^sampler = gfx.sampler(gfx.NEAREST, gfx.CLAMP)
 
 # Two triangles: position, then texture coordinates.
-let^vertices:f32^[24] = [
+let^vertices:f32^[24] = {
     -0.6, -0.6, 0.0, 1.0,   0.6, -0.6, 1.0, 1.0,   0.6, 0.6, 1.0, 0.0,
     -0.6, -0.6, 0.0, 1.0,   0.6, 0.6, 1.0, 0.0,   -0.6, 0.6, 0.0, 0.0
-]
+}
 var^buffer = gfx.buffer(gfx.BUFFER_VERTEX, vertices.bytes)
 var^pipeline = gfx.pipeline(vs, fs, gfx.CULL_NONE, gfx.BLEND_NONE, false^, false^)
 if^texture.id = 0 or^!uploaded or^sampler.id = 0 or^buffer.id = 0 or^pipeline.id = 0 {
@@ -64,7 +64,7 @@ if^texture.id = 0 or^!uploaded or^sampler.id = 0 or^buffer.id = 0 or^pipeline.id
 }
 
 var^frames:i64^ = 0
-var^params:f32^[4] = [1.0, 0.0, 1.0, 0.0]
+var^params:f32^[4] = {1.0, 0.0, 1.0, 0.0}
 repeat^while^gfx.frame() and^frames < 40 {
     # Turn by 1/160 of a circle a frame; keep the quad square on a wide screen.
     let^angle = f32^(frames) * 0.0392699

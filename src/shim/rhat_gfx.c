@@ -297,6 +297,11 @@ void rg_end_pass(void)
     gs_gfx_end_pass();
 }
 
+float rg_mouse_wheel(void)
+{
+    return gs_gfx_mouse_wheel();
+}
+
 void rg_bind_pipeline(uint32_t pipeline)
 {
     gs_gfx_bind_pipeline((gs_gfx_pipeline){pipeline});
@@ -305,6 +310,11 @@ void rg_bind_pipeline(uint32_t pipeline)
 void rg_bind_vertex_buffer(int64_t slot, uint32_t buffer, int64_t offset)
 {
     gs_gfx_bind_vertex_buffer(slot, (gs_gfx_buffer){buffer}, offset);
+}
+
+void rg_bind_index_buffer(uint32_t buffer, int64_t index_size, int64_t offset)
+{
+    gs_gfx_bind_index_buffer((gs_gfx_buffer){buffer}, index_size, offset);
 }
 
 void rg_bind_texture(int64_t stage, int64_t slot, uint32_t texture, uint32_t sampler)
@@ -325,6 +335,11 @@ void rg_viewport(float x, float y, float w, float h)
 void rg_draw(int64_t vertices)
 {
     gs_gfx_draw(vertices, 1, 0, 0);
+}
+
+void rg_draw_indexed(int64_t indices)
+{
+    gs_gfx_draw_indexed(indices, 1, 0, 0, 0);
 }
 
 uint8_t rg_screenshot(const uint8_t *path, int64_t len)

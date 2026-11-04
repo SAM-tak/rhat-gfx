@@ -16,7 +16,7 @@ let^fs = "
     void main() { result = vec4(color, 1.0); }
     "
 
-var^why = u8^[grow^]
+var^why = u8^[grow^]{}
 let^ok = gfx.open("rhat-gfx buffer", 640, 360, 0)
 if^!ok {
     gfx.error(ref^why)
@@ -24,11 +24,11 @@ if^!ok {
     return^
 }
 var^pipeline = gfx.pipeline(vs, fs, gfx.CULL_NONE, gfx.BLEND_NONE, false^, false^)
-let^vertices:f32^[15] = [
+let^vertices:f32^[15] = {
     0.0, 0.7, 1.0, 1.0, 0.0,
     -0.7, -0.7, 0.0, 1.0, 1.0,
     0.7, -0.7, 1.0, 0.0, 1.0
-]
+}
 var^buffer = gfx.buffer(gfx.BUFFER_VERTEX, vertices.bytes)
 if^pipeline.id = 0 or^buffer.id = 0 {
     gfx.error(ref^ why)
