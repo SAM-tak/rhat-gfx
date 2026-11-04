@@ -201,7 +201,7 @@ public^let^pipeline = p^vs:string^, fs:string^, cull:i64^, blend:i64^, depth_tes
     depth_write:bool^-> Pipeline {
     return^make_pipeline(vs, fs, cull, blend, depth_test, depth_write, "".bytes)
 }
-& p^vs:string^, fs:string^, cull:i64^, blend:i64^, depth_test:bool^, depth_write:bool^,
+overload^pipeline = p^vs:string^, fs:string^, cull:i64^, blend:i64^, depth_test:bool^, depth_write:bool^,
     formats:u8^[..] -> Pipeline {
     return^make_pipeline(vs, fs, cull, blend, depth_test, depth_write, formats)
 }

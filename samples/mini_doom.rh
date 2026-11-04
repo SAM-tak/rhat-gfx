@@ -21,9 +21,9 @@ let^F2 = std.math.vector2.Vector2
 # --- small math ---------------------------------------------------------------
 
 let^min = f^a:f32^, b:f32^{ if^a < b: a el^: b; }
-    & f^a:i64^, b:i64^{ if^a < b: a el^: b; }
+overload^min = f^a:i64^, b:i64^{ if^a < b: a el^: b; }
 let^max = f^a:f32^, b:f32^{ if^a > b: a el^: b; }
-    & f^a:i64^, b:i64^{ if^a > b: a el^: b; }
+overload^max = f^a:i64^, b:i64^{ if^a > b: a el^: b; }
 let^fclamp = f^x:f32^, lo:f32^, hi:f32^{ min(max(x, lo), hi) }
 
 let^require = f^ok:bool^, message:string^{

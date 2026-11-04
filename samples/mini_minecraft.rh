@@ -46,13 +46,13 @@ let^F4 = std.math.vector4.Vector4
 let^PI:f32^= 3.14159265
 let^TAU:f32^= 6.2831853
 let^min = f^a:f32^, b:f32^{ if^a < b: a el^: b; }
-    & f^a:i64^, b:i64^{ if^a < b: a el^: b; }
+overload^min = f^a:i64^, b:i64^{ if^a < b: a el^: b; }
 let^max = f^a:f32^, b:f32^{ if^a > b: a el^: b; }
-    & f^a:i64^, b:i64^{ if^a > b: a el^: b; }
+overload^max = f^a:i64^, b:i64^{ if^a > b: a el^: b; }
 let^clamp = f^x:f32^, lo:f32^, hi:f32^{ min(max(x, lo), hi) }
-    & f^x:i64^, lo:i64^, hi:i64^{ min(max(x, lo), hi) }
+overload^clamp = f^x:i64^, lo:i64^, hi:i64^{ min(max(x, lo), hi) }
 let^abs = f^x:f32^-> f32^{ math.abs(x) }
-    & f^x:i64^-> i64^{ if^x < 0: -x el^: x; }
+overload^abs = f^x:i64^-> i64^{ if^x < 0: -x el^: x; }
 let^floor = f^x:f32^-> i64^{ i64^(math.floor(x)) }
 let^length_sq = f^v:F3 -> f32^{ v dot^v }
 
@@ -456,7 +456,8 @@ let^move_axis = p^delta:F3, keep_support:bool^-> bool^{
     game.player.feet := start + delta * lo
     return^true^
 }
-    & p^delta:F3 -> bool^{ return^move_axis(delta, false^) }
+overload^move_axis = p^delta:F3 -> bool^{ return^move_axis(delta, false^) }
+
 let^walk = p^direction:F2, jump:bool^, run:bool^, sneak:bool^{
     let^swimming = wet(game.player.feet)
     let^speed:f32^= if^swimming: 2.6 el^sneak: 1.5 el^run: 6.0 el^: 4.2;
@@ -486,7 +487,7 @@ let^walk = p^direction:F2, jump:bool^, run:bool^, sneak:bool^{
     game.player.grounded := hit and^game.player.velocity < 0.0
     if^hit { game.player.velocity := 0.0 }
 }
-    & p^direction:F2, jump:bool^, run:bool^{ walk(direction, jump, run, false^) }
+overload^walk = p^direction:F2, jump:bool^, run:bool^{ walk(direction, jump, run, false^) }
 
 struct^Hit { found:bool^= false^, at:Cell = Cell{}, before:Cell = Cell{}, distance:f32^= 0.0 }
 let^ray = f^origin:F3, direction:F3, reach:f32^-> Hit {
