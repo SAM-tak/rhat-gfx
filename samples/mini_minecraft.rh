@@ -33,11 +33,13 @@
 import^gfx
 import^std.math.vector2
 import^std.math.vector3
+import^std.math.vector4
 
 let^fs = import^std.fs
 let^math = import^std.math
 let^F2 = std.math.vector2.Vector2
 let^F3 = std.math.vector3.Vector3
+let^F4 = std.math.vector4.Vector4
 
 # --- small math ---------------------------------------------------------------
 
@@ -54,7 +56,6 @@ let^abs = f^x:f32^-> f32^{ math.abs(x) }
 let^floor = f^x:f32^-> i64^{ i64^(math.floor(x)) }
 let^length_sq = f^v:F3 -> f32^{ v dot^v }
 
-struct^F4 { x:f32^= 0.0, y:f32^= 0.0, z:f32^= 0.0, w:f32^= 0.0 }
 struct^Rgb { r:i64^= 0, g:i64^= 0, b:i64^= 0 }
 
 # --- blocks and game state ----------------------------------------------------
@@ -144,8 +145,8 @@ struct^Mesh {
     count:i64^= 0,
     dirty:bool^= false^
 }
-var^meshes:Mesh[] = {Mesh{} repeat^CHUNKS_X * CHUNKS_Z}
-var^lamps:F4[] = {F4{} repeat^MAX_LAMPS}
+var^meshes = {Mesh{} repeat^CHUNKS_X * CHUNKS_Z}
+var^lamps = {F4{} repeat^MAX_LAMPS}
 var^lamp_count:i64^= 0
 var^message:u8^[max^100] = {}
 var^message_time:f32^= 0.0
@@ -153,9 +154,13 @@ var^message_time:f32^= 0.0
 # Cosmetic fragments are a fixed pool: breaking another block reuses the
 # oldest slots. They never affect collisions, inventory, or saved games.
 let^MAX_DEBRIS:i64^= 48
-struct^Debris { pos:F3 = F3{x = 0.0, y = 0.0, z = 0.0}, velocity:F3 = F3{x = 0.0, y = 0.0, z = 0.0},
-    life:f32^= 0.0, tile:i64^= 0 }
-var^debris:Debris[] = {Debris{} repeat^MAX_DEBRIS}
+struct^Debris {
+    pos:F3 = F3{x = 0.0, y = 0.0, z = 0.0},
+    velocity:F3 = F3{x = 0.0, y = 0.0, z = 0.0},
+    life:f32^= 0.0,
+    tile:i64^= 0
+}
+var^debris = {Debris{} repeat^MAX_DEBRIS}
 var^next_debris:i64^= 0
 
 let^scatter = p^c:Cell, b:u8^{
@@ -906,7 +911,7 @@ let^UP:Cell[6] = {
 let^CORNERS:F2[4] = {
     F2{x = -1.0, y = -1.0}, F2{x = 1.0, y = -1.0}, F2{x = 1.0, y = 1.0}, F2{x = -1.0, y = 1.0}
 }
-var^column_top:i64^[] = {0 repeat^WIDTH * DEPTH}
+var^column_top:i64^[WIDTH * DEPTH] = {0 repeat^WIDTH * DEPTH}
 
 let^offset = f^c:Cell, dir:Cell, amount:i64^-> Cell {
     Cell{x = c.x + dir.x * amount, y = c.y + dir.y * amount, z = c.z + dir.z * amount}
@@ -1056,7 +1061,7 @@ struct^Scene {
     view_proj:M4 = M4{},
     eye:F4 = F4{},
     target:F4 = F4{},
-    lights:F4[16],
+    lights:F4[MAX_LAMPS],
     haze:F4 = F4{},
     sun:F4 = F4{}             # xyz: direction, w: daylight strength
 }
@@ -1414,7 +1419,7 @@ let^gameplay_tests = p^{
     assert^(abs(day_time - 0.25) < 0.001)
     generate(123)
     assert^(checksum = world_checksum())
-    var^counts:i64^[13] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+    var^counts = {0 repeat^13}
     for^i from^0 to^VOLUME - 1 { counts[blocks[i]] += 1 }
     assert^(counts[WOOD] > 20 and^counts[WATER] > 20 and^counts[COAL] > 20)
     generate(321)
@@ -1856,16 +1861,16 @@ repeat^while^gfx.frame() {
     let^target = if^hit.found and^!crafting and^!paused:
         F4{x = f32^(hit.at.x), y = f32^(hit.at.y), z = f32^(hit.at.z), w = progress}
         el^: F4{w = -1.0};
-    var^scene:Scene[1] = {Scene{
+    let^scene:Scene[1] = {Scene{
         view_proj = view_proj,
         eye = F4{x = camera.x, y = camera.y, z = camera.z, w = elapsed},
         target = target,
+        lights = lamps,
         haze = haze,
         sun = sun
     }}
-    for^i from^0 to^MAX_LAMPS - 1 { scene[0].lights[i] := lamps[i] }
     let^lens:f32^= math.tan(0.575)    # half the 1.15 radian field of view
-    let^sky:Sky[1] = {Sky{
+    var^sky = {Sky{
         ahead = F4{x = ahead.x / lens, y = ahead.y / lens, z = ahead.z / lens},
         right = F4{x = right.x, y = right.y, z = right.z},
         up = F4{x = up.x, y = up.y, z = up.z},
@@ -1873,7 +1878,7 @@ repeat^while^gfx.frame() {
         sun = sun,
         haze = haze
     }}
-    let^canvas:f32^[4] = {screen.x, screen.y, 0.0, 0.0}
+    let^canvas = { screen.x, screen.y, 0.0, 0.0 }
 
     if^gfx.begin_screen(haze.x, haze.y, haze.z, 1.0, true^) {
         sky_pipeline.bind()
