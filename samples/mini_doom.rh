@@ -33,26 +33,26 @@ let^require = f^ok:bool^, message:string^{
 # --- the WAD directory and little-endian values --------------------------------
 
 struct^Lump { name:u8^[max^8] = {}, start:i64^= 0, size:i64^= 0 }
-var^wad:u8^[grow^] = {}
-var^lumps:Lump[grow^] = {}
+var^wad = u8^[grow^]{}
+var^lumps = Lump[grow^]{}
 
 let^u16le = f^data:u8^[..], at:i64^-> i64^{
     if^at < 0 or^at + 2 > data.len { panic^"mini doom: truncated 16-bit WAD field" }
     return^i64^(data[at]) + i64^(data[at + 1]) * 256
 }
 let^i16le = f^data:u8^[..], at:i64^-> i64^{
-    let^v = u16le(data, at)
-    return^if^v >= 32768: v - 65536 el^: v;
+    for^let^v = u16le(data, at)
+    if^v >= 32768: v - 65536 el^: v;
 }
 let^u32le = f^data:u8^[..], at:i64^-> i64^{
-    return^u16le(data, at) + u16le(data, at + 2) * 65536
+    u16le(data, at) + u16le(data, at + 2) * 65536
 }
 
 # A name of up to eight bytes, ending at the first NUL.
 let^name_at = f^data:u8^[..], at:i64^-> u8^[max^8] {
     require(at >= 0 and^at + 8 <= data.len, "mini doom: truncated WAD name")
-    var^name:u8^[max^8] = {}
-    var^i:i64^= 0
+    var^name = u8^[max^8]{}
+    var^i = i64^(0)
     repeat^while^i < 8 and^data[at + i] != 0 {
         name.push(data[at + i])
         i += 1
@@ -70,13 +70,13 @@ let^same = f^a:u8^[..], b:u8^[..] {
 
 # prefix followed by n written with at least digits digits.
 let^numbered = f^prefix:string^, n:i64^, digits:i64^-> u8^[max^8] {
-    var^name:u8^[max^8] = {}
+    var^name = u8^[max^8]{}
     name.append(prefix.bytes)
-    var^text:u8^[max^8] = {}
+    var^text = u8^[max^8]{}
     var^rest = n
     repeat^while^rest > 0 or^text.len < digits {
         text.push(u8^(48 + rest % 10))
-        rest := rest / 10
+        rest /= 10
     }
     repeat^while^text.len > 0 { name.push(text.pop()) }
     return^name
@@ -1877,7 +1877,7 @@ if^!gfx.open("R^: Mini Doom / Freedoom E1M1", 960, 600, gfx.WINDOW_RESIZABLE) {
 var^atlas = gfx.texture2d(ATLAS_W, ATLAS_H)
 let^uploaded = atlas.update(atlas_pixels[..])
 let^sampler = gfx.sampler(gfx.NEAREST, gfx.CLAMP)
-let^world_pipeline = gfx.pipeline(
+var^world_pipeline = gfx.pipeline(
     world_vertex,
     world_fragment,
     gfx.CULL_NONE,
@@ -1885,7 +1885,7 @@ let^world_pipeline = gfx.pipeline(
     true^,
     true^
 )
-let^hud_pipeline = gfx.pipeline(
+var^hud_pipeline = gfx.pipeline(
     hud_vertex,
     hud_fragment,
     gfx.CULL_NONE,
