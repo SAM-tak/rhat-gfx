@@ -266,8 +266,8 @@ let^load_textures = p^{
     }
 }
 
+# Load every sprite once; gameplay only looks up these IDs.
 let^load_sprites = p^{
-    # Load every sprite once; gameplay only looks up these IDs.
     let^first = find_lump("S_START".bytes)
     let^last = find_lump("S_END".bytes)
     require(first >= 0 and^last > first, "mini doom: missing sprite markers")
