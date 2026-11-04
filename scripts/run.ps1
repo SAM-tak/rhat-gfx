@@ -13,9 +13,15 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $out = Join-Path $root 'build'
 if ($Build -or -not (Test-Path (Join-Path $out 'rhat_gfx_shim.lib'))) {
-    cmake -S $root -B $out -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang
-    cmake --build $out --target rhat_gfx_shim
-    if ($LASTEXITCODE -ne 0) { throw 'native build failed' }
+    Push-Location $root
+    try {
+        cmake --preset native
+        if ($LASTEXITCODE -ne 0) { throw 'native configure failed' }
+        cmake --build --preset native
+        if ($LASTEXITCODE -ne 0) { throw 'native build failed' }
+    } finally {
+        Pop-Location
+    }
 }
 $libs = 'rhat_gfx_shim.lib', 'rhat_gfx.lib', 'rhat_audio.lib', 'rhat_shaderc.lib', 'SDL\SDL3-static.lib' |
     ForEach-Object { Join-Path $out $_ }

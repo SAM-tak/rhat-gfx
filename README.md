@@ -8,7 +8,7 @@ Goose の `embed_shader` が使うシェーダコンパイラ（cute_spirv）を
 ## 構成
 
 | | |
-|---|---|
+| --- | --- |
 | `gfx.rh` | R^ のモジュール `gfx`。ウィンドウ、入力（テスト用の注入を含む）、バッファ、テクスチャ、パイプライン、描画 |
 | `audio.rh` | R^ のモジュール `audio`。f32 の PCM を音として登録し、音量・パン・ピッチを付けて再生 |
 | `src/shim/` | C 中継。goose_gfx の API は `{data, len}` のスライスやパック構造体を値で渡すので、スカラーと (ポインタ, 長さ) だけの関数に包む。シェーダの GLSL はここで実行時にコンパイルする |
@@ -50,6 +50,24 @@ mini minecraft は引数なしで動きます。`--test` は窓を開かずに�
 WASD で移動、Space でジャンプ・泳ぐ、Shift で走る、Ctrl で忍び足、マウスか矢印キーで視点、左クリック長押しで採掘、
 右クリックか E で設置、1〜8 かホイールで選択、中クリックで狙ったものを選択、C でクラフト、H でヘルプ、
 F5 でセーブ、F9 でロード、F12 でスクリーンショット。
+
+## VSCode の C/C++ 解析
+
+CMake Tools と `scripts/run.ps1` は `native` Preset（Ninja + Clang）を使います。
+C/C++ 拡張は、configure 時に生成する `build/compile_commands.json` から各 C ファイルの
+コンパイラ・include パス・マクロ・C 規格を読み取ります。
+
+最初は開発用シェルから configure して VSCode を起動してください。
+
+```powershell
+. ..\rhat\scripts\devshell.ps1
+cmake --preset native
+code .
+```
+
+以前の別ジェネレーターのキャッシュが残っている場合は、一度 `cmake --fresh --preset native` を実行します。
+VSCode の CMake Tools でも configure preset に `native` を選びます。
+診断が残る場合は `C/C++: Reset IntelliSense Database` を実行してください。
 
 ## 状況
 
