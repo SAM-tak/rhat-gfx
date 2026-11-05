@@ -287,9 +287,9 @@ let^load_sprites = p^{
 
 # --- map records ----------------------------------------------------------------
 
-struct^Side { offset:F2 = F2{}, upper:i64^= -1, lower:i64^= -1, middle:i64^= -1, sector:i64^= 0 }
+struct^Side { offset:F2 = {}, upper:i64^= -1, lower:i64^= -1, middle:i64^= -1, sector:i64^= 0 }
 struct^Line {
-    a:F2 = F2{}, b:F2 = F2{}, flags:i64^= 0, special:i64^= 0, tag:i64^= 0, front:i64^= 0,
+    a:F2 = {}, b:F2 = {}, flags:i64^= 0, special:i64^= 0, tag:i64^= 0, front:i64^= 0,
     back:i64^= -1, activated:bool^= false^
 }
 struct^Sector {
@@ -298,10 +298,10 @@ struct^Sector {
     start_ceiling:f32^= 0.0, motion:i64^= 0, target:f32^= 0.0, wait:f32^= 0.0,
     speed:f32^= 0.0, secret_found:bool^= false^
 }
-struct^Seg { a:F2 = F2{}, b:F2 = F2{}, sector:i64^= 0 }
+struct^Seg { a:F2 = {}, b:F2 = {}, sector:i64^= 0 }
 struct^Subsector { first:i64^= 0, count:i64^= 0, sector:i64^= 0 }
-struct^Node { origin:F2 = F2{}, delta:F2 = F2{}, front:i64^= 0, back:i64^= 0 }
-struct^FloorTriangle { a:F2 = F2{}, b:F2 = F2{}, c:F2 = F2{}, sector:i64^= 0 }
+struct^Node { origin:F2 = {}, delta:F2 = {}, front:i64^= 0, back:i64^= 0 }
+struct^FloorTriangle { a:F2 = {}, b:F2 = {}, c:F2 = {}, sector:i64^= 0 }
 
 var^vertices = F2[grow^]{}
 var^sides = Side[grow^]{}
@@ -514,14 +514,14 @@ let^PLAYER_RADIUS:f32^= 16.0
 let^PLAYER_HEIGHT:f32^= 56.0
 
 struct^Player {
-    pos:F2 = F2{}, z:f32^= 0.0, falling:f32^= 0.0, yaw:f32^= 0.0,
+    pos:F2 = {}, z:f32^= 0.0, falling:f32^= 0.0, yaw:f32^= 0.0,
     health:i64^= 100, armor:i64^= 0, bullets:i64^= 50, shells:i64^= 0,
     weapon:i64^= 2, shotgun:bool^= false^, chaingun:bool^= false^, blue_key:bool^= false^,
     cooldown:f32^= 0.0, flash:f32^= 0.0, hurt:f32^= 0.0, bonus:f32^= 0.0, bob:f32^= 0.0
 }
 
 struct^Actor {
-    pos:F2 = F2{}, z:f32^= 0.0, kind:i64^= 0, picture:i64^= 0, radius:f32^= 16.0,
+    pos:F2 = {}, z:f32^= 0.0, kind:i64^= 0, picture:i64^= 0, radius:f32^= 16.0,
     health:i64^= 0, alive:bool^= true^, solid:bool^= false^, awake:bool^= false^,
     timer:f32^= 0.0, pain:f32^= 0.0, death:f32^= 0.0, attacking:f32^= 0.0
 }
@@ -927,7 +927,7 @@ let^tick = p^direction:F2, running:bool^, firing:bool^{
 
 # --- monsters, pickups and sound -------------------------------------------------------
 
-struct^Fireball { pos:F2 = F2{}, z:f32^= 0.0, velocity:F2 = F2{}, vz:f32^= 0.0, life:f32^= 0.0 }
+struct^Fireball { pos:F2 = {}, z:f32^= 0.0, velocity:F2 = {}, vz:f32^= 0.0, life:f32^= 0.0 }
 var^fireballs = Fireball[max^64]{}
 var^sounds = audio.Sound[grow^]{}
 
@@ -1131,7 +1131,7 @@ let^shoot = p^{
 let^fire_pellet = p^weapon:i64^{
     let^spread = if^weapon = 3: f32^(random_int(101) - 50) * 0.0015
         el^weapon = 4: f32^(random_int(101) - 50) * 0.0005 el^: 0.0;
-    let^direction = F2{x = math.cos(player.yaw + spread), y = math.sin(player.yaw + spread)}
+    let^direction = F2{ x = math.cos(player.yaw + spread), y = math.sin(player.yaw + spread) }
     var^nearest = if^weapon = 1: f32^(70.0) el^: 1800.0;
     var^target:i64^= -1
     for^i from^0 to^actors.len - 1 {
@@ -1158,10 +1158,12 @@ let^fire_pellet = p^weapon:i64^{
 let^launch_fireball = p^a:Actor {
     let^delta = player.pos - a.pos
     let^dist = max(1.0, delta.length())
-    fireballs[next_fireball] := Fireball{pos = a.pos, z = a.z + 32.0, velocity = delta * (
-        280.0 / dist
-    ),
-        vz = (player.z + 30.0 - a.z - 32.0) * 280.0 / dist, life = 5.0}
+    fireballs[next_fireball] := Fireball{
+        pos = a.pos, z = a.z + 32.0,
+        velocity = delta * ( 280.0 / dist ),
+        vz = (player.z + 30.0 - a.z - 32.0) * 280.0 / dist,
+        life = 5.0
+    }
     next_fireball := (next_fireball + 1) % fireballs.len
     sound(9, a.pos)
 }
@@ -1177,12 +1179,8 @@ let^explode = p^i:i64^{
     for^j from^0 to^actors.len - 1 {
         let^other = actors[j]
         let^d = F2.distance(a.pos, other.pos)
-        if^j != i and^other.health > 0 and^d < 160.0 and^visible(
-            a.pos,
-            a.z + 24.0,
-            other.pos,
-            other.z + 28.0
-        ) {
+        if^j != i and^other.health > 0 and^d < 160.0
+        and^visible(a.pos, a.z + 24.0, other.pos, other.z + 28.0) {
             damage_actor(j, max(0, i64^(120.0 - d * 0.7)))
         }
     }
@@ -1229,12 +1227,8 @@ let^update_monster = p^i:i64^{
     a.timer -= STEP
     let^delta = player.pos - a.pos
     let^dist = delta.length()
-    let^sees = player.health > 0 and^dist < 1500.0 and^visible(
-        a.pos,
-        a.z + 36.0,
-        player.pos,
-        player.z + 32.0
-    )
+    let^sees = player.health > 0 and^dist < 1500.0
+        and^visible(a.pos, a.z + 36.0, player.pos, player.z + 32.0)
     if^sees { a.awake := true^}
     if^!a.awake or^player.health <= 0 or^a.pain > 0.0 { return^}
     if^sees and^a.timer <= 0.0 and^(dist < 650.0 or^dist < a.radius + 38.0) { attack(i, dist) }
@@ -1263,10 +1257,8 @@ let^update_fireballs = p^{
             vz = f.vz,
             life = f.life - STEP
         }
-        if^F2.distance(
-            next,
-            player.pos
-        ) < 22.0 and^next_z > player.z and^next_z < player.z + PLAYER_HEIGHT {
+        if^F2.distance(next, player.pos) < 22.0 and^next_z > player.z
+        and^next_z < player.z + PLAYER_HEIGHT {
             hurt_player(10 + random_int(15))
             fireballs[i].life := 0.0
         }
@@ -1514,10 +1506,11 @@ let^WHITE = Color{}
 
 let^hud_point = f^x:f32^, y:f32^, u:f32^, v:f32^, id:i64^, color:Color {
     let^p = pictures[id]
-    return^HudVertex{x = x, y = y, u = u, v = v, rx = f32^(
-        p.x
-    ), ry = f32^(p.y), rw = f32^(p.w), rh = f32^(p.h),
-        r = color.r, g = color.g, b = color.b, a = color.a}
+    return^HudVertex{
+        x = x, y = y, u = u, v = v,
+        rx = f32^(p.x), ry = f32^(p.y), rw = f32^(p.w), rh = f32^(p.h),
+        r = color.r, g = color.g, b = color.b, a = color.a
+    }
 }
 
 let^hud_quad = p^out:ref^HudVertex[grow^], x:f32^, y:f32^, w:f32^, h:f32^, id:i64^, color:Color {

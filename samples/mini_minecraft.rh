@@ -96,7 +96,7 @@ def^Cell {
 }
 
 struct^Player {
-    feet:F3 = F3{x = 0.0, y = 0.0, z = 0.0},
+    feet:F3 = { x = 0.0, y = 0.0, z = 0.0 },
     velocity:f32^= 0.0,
     yaw:f32^= 0.0,
     pitch:f32^= 0.0,
@@ -109,7 +109,7 @@ struct^Player {
 struct^Game {
     version:i64^= 0,
     seed:u32^= 0,
-    player:Player = Player{},
+    player:Player = {},
     bag:i64^[8],
     tool:i64^= 0,              # 0: hands, 1: wooden pick, 2: stone pick
     selected:i64^= 0
@@ -122,20 +122,20 @@ var^day_time:f32^= 90.0         # Morning; zero is sunrise.
 # only static sky exposure, so a moving sun never needs to rebuild them.
 let^sun_direction = f^-> F3 {
     let^angle = day_time / DAY_LENGTH * TAU
-    return^F3{x = -math.cos(angle), y = math.sin(angle), z = 0.3}.normalized()
+    return^F3{ x = -math.cos(angle), y = math.sin(angle), z = 0.3 }.normalized()
 }
 let^daylight = f^-> f32^{ clamp(sun_direction().y * 3.0 + 0.35, 0.0, 1.0) }
 let^horizon = f^-> F3 {
     let^day = daylight()
     let^dusk = 1.0 - abs(day * 2.0 - 1.0)
-    return^F3{x = 0.045, y = 0.065, z = 0.12} * (1.0 - day) + F3{x = 0.70, y = 0.82, z = 0.87} * day +
-        F3{x = 0.30, y = 0.04, z = 0.0} * dusk
+    return^F3{ x = 0.045, y = 0.065, z = 0.12 } * (1.0 - day) + F3{ x = 0.70, y = 0.82, z = 0.87 } * day +
+        F3{ x = 0.30, y = 0.04, z = 0.0 } * dusk
 }
 let^advance_time = p^dt:f32^{ day_time := (day_time + dt) % DAY_LENGTH }
 
 struct^Mesh {
-    vertices:gfx.Buffer = gfx.Buffer{},
-    indices:gfx.Buffer = gfx.Buffer{},
+    vertices:gfx.Buffer = {},
+    indices:gfx.Buffer = {},
     count:i64^= 0,
     dirty:bool^= false^
 }
@@ -149,12 +149,12 @@ var^message_time:f32^= 0.0
 # oldest slots. They never affect collisions, inventory, or saved games.
 let^MAX_DEBRIS:i64^= 48
 struct^Debris {
-    pos:F3 = F3{x = 0.0, y = 0.0, z = 0.0},
-    velocity:F3 = F3{x = 0.0, y = 0.0, z = 0.0},
+    pos:F3 = { x = 0.0, y = 0.0, z = 0.0 },
+    velocity:F3 = { x = 0.0, y = 0.0, z = 0.0 },
     life:f32^= 0.0,
     tile:i64^= 0
 }
-var^debris = {Debris{} repeat^MAX_DEBRIS}
+var^debris = { Debris{} repeat^MAX_DEBRIS }
 var^next_debris:i64^= 0
 
 let^scatter = p^c:Cell, b:BlockType {
@@ -309,7 +309,7 @@ let^respawn = p^{
                 if^(b = BlockType.GRASS or^b = BlockType.SAND or^b = BlockType.STONE)
                     and^y >= SEA and^y < HEIGHT - 3 {
                     game.player := Player{
-                        feet = F3{x = f32^(x) + 0.5, y = f32^(y) + 1.001, z = f32^(z) + 0.5},
+                        feet = { x = f32^(x) + 0.5, y = f32^(y) + 1.001, z = f32^(z) + 0.5 },
                         velocity = 0.0, yaw = -0.4, pitch = -0.12, grounded = false^
                     }
                     return^
@@ -317,7 +317,7 @@ let^respawn = p^{
             }
         }
     }
-    game.player := Player{feet = F3{x = 40.5, y = 41.0, z = 40.5}}
+    game.player := Player{ feet = { x = 40.5, y = 41.0, z = 40.5 } }
 }
 let^generate = p^seed:u32^{
     game := Game{version = 1, seed = seed}
@@ -360,7 +360,7 @@ let^generate = p^seed:u32^{
         for^y from^2 to^HEIGHT - 2 {
             for^z:i64^from^28 to^43 {
                 for^x:i64^from^43 to^62 {
-                    let^d = F3{x = f32^(x) + 0.5 - cx, y = f32^(y) + 0.5 - cy, z = f32^(z) + 0.5 - cz}
+                    let^d = F3{ x = f32^(x) + 0.5 - cx, y = f32^(y) + 0.5 - cy, z = f32^(z) + 0.5 - cz }
                     if^length_sq(d) < 3.2 { put(cell(x, y, z), BlockType.AIR) }
                 }
             }
@@ -385,10 +385,10 @@ let^BODY_HEIGHT:f32^= 1.8
 let^EYE_HEIGHT:f32^= 1.62
 let^STEP:f32^= 1.0 / 120.0
 
-let^eye = f^-> F3 { game.player.feet + F3{x = 0.0, y = EYE_HEIGHT, z = 0.0} }
+let^eye = f^-> F3 { game.player.feet + F3{ x = 0.0, y = EYE_HEIGHT, z = 0.0 } }
 let^forward = f^-> F3 {
     let^p = game.player
-    return^F3{
+    return^{
         x = math.sin(p.yaw) * math.cos(p.pitch),
         y = math.sin(p.pitch),
         z = -math.cos(p.yaw) * math.cos(p.pitch)
@@ -688,7 +688,7 @@ let^put_game = p^out:ref^u8^[grow^], g:Game {
     put_u32(out, u32^(g.selected))
 }
 let^get_game = f^data:u8^[..] -> Game {
-    var^g = Game{version = i64^(get_u32(data, 0)), seed = get_u32(data, 4)}
+    var^g = Game{ version = i64^(get_u32(data, 0)), seed = get_u32(data, 4) }
     g.player.feet := F3{x = get_f32(data, 8), y = get_f32(data, 12), z = get_f32(data, 16)}
     g.player.velocity := get_f32(data, 20)
     g.player.yaw := get_f32(data, 24)
@@ -1056,127 +1056,125 @@ let^look_at = f^eye:F3, target:F3, up:F3 -> M4 {
 # Every field begins on a 16-byte boundary, exactly as GLSL std140 wants.
 # eye.w is time; target.w is mining progress, or -1 if nothing is targeted.
 struct^Scene {
-    view_proj:M4 = M4{},
-    eye:F4 = F4{},
-    target:F4 = F4{},
+    view_proj:M4,
+    eye:F4,
+    target:F4,
     lights:F4[MAX_LAMPS],
-    haze:F4 = F4{},
-    sun:F4 = F4{}             # xyz: direction, w: daylight strength
+    haze:F4,
+    sun:F4                # xyz: direction, w: daylight strength
 }
 let^world_vertex = "
-    layout(location = 0) in vec3 a_pos;
-    layout(location = 1) in vec3 a_normal;
-    layout(location = 2) in vec2 a_uv;
-    layout(location = 3) in float a_shade;
-    layout(location = 4) in float a_material;
-    layout(set = 1, binding = 0) uniform Camera { mat4 view_proj; };
-    layout(location = 0) out vec3 v_world;
-    layout(location = 1) out vec3 v_normal;
-    layout(location = 2) out vec2 v_uv;
-    layout(location = 3) out float v_shade;
-    layout(location = 4) flat out float v_material;
-    void main() {
-        v_world = a_pos;
-        v_normal = a_normal;
-        v_uv = a_uv;
-        v_shade = a_shade;
-        v_material = a_material;
-        gl_Position = view_proj * vec4(a_pos, 1.0);
-    }
-    "
-let^world_fragment = "
-    layout(set = 3, binding = 0) uniform Scene {
-        mat4 view_proj;
-        vec4 eye;
-        vec4 target;
-        vec4 lights[16];
-        vec4 haze;
-        vec4 sun;
-    };
-    layout(location = 0) in vec3 v_world;
-    layout(location = 1) in vec3 v_normal;
-    layout(location = 2) in vec2 v_uv;
-    layout(location = 3) in float v_shade;
-    layout(location = 4) flat in float v_material;
-    layout(set = 2, binding = 0) uniform sampler2D atlas;
-    layout(location = 0) out vec4 result;
-    void main() {
-        vec3 base = texture(atlas, v_uv).rgb;
-        float direct = max(dot(v_normal, sun.xyz), 0.0) * sun.w;
-        vec3 light = mix(vec3(0.10, 0.14, 0.23), vec3(0.64, 0.73, 0.82) * 0.48, sun.w);
-        light += vec3(0.66, 0.59, 0.43) * direct;
-        light *= v_shade;
-        for (int i = 0; i < 16; i++) {
-            float d = length(lights[i].xyz - v_world);
-            float glow = max(0.0, 1.0 - d / 7.0);
-            light += vec3(1.0, 0.63, 0.25) * glow * glow * lights[i].w;
-        }
-        if (v_material == 12.0) light = max(light, vec3(1.1, 0.96, 0.7));
-        if (v_material == 10.0) {
-            float wave = sin(v_world.x * 2.7 + eye.w) * sin(v_world.z * 3.1 - eye.w);
-            base += vec3(0.04, 0.07, 0.08) * wave;
-            light = max(light, vec3(mix(0.15, 0.72, sun.w)));
-        }
-        vec3 color = base * light;
-        vec3 cell = floor(v_world - v_normal * 0.002);
-        bool targeted = all(lessThan(abs(cell - target.xyz), vec3(0.1)));
-        if (v_material >= 0.0 && target.w >= 0.0 && targeted) {
-            vec3 local = fract(v_world);
-            vec3 edge = min(local, 1.0 - local) + abs(v_normal);
-            float border = min(edge.x, min(edge.y, edge.z));
-            if (border < 0.018) color = vec3(1.0, 0.91, 0.57);
-            // A progressively denser cracked pattern while holding mine.
-            vec3 crack = abs(fract(v_world * 5.0 + sin(v_world.zxy * 13.0) * 0.2) - 0.5);
-            if (target.w > 0.0 && min(crack.x + crack.y, crack.y + crack.z) < target.w * 0.18)
-                color *= 0.28;
-        }
-        float fog = smoothstep(34.0, 83.0, length(eye.xyz - v_world));
-        if (haze.w > 0.0) fog = 1.0 - exp(-length(eye.xyz - v_world) * 0.17);
-        result = vec4(mix(color, haze.rgb, fog), 1.0);
-    }
-    "
-let^sky_vertex = "
-    layout(location = 0) out vec2 v_uv;
-    void main() {
-        vec2 p = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));
-        v_uv = p;
-        gl_Position = vec4(p * 2.0 - 1.0, 0.9999, 1.0);
-    }
-    "
-struct^Sky {
-    ahead:F4 = F4{}, right:F4 = F4{}, up:F4 = F4{}, info:F4 = F4{}, sun:F4 = F4{}, haze:F4 = F4{}
+layout(location = 0) in vec3 a_pos;
+layout(location = 1) in vec3 a_normal;
+layout(location = 2) in vec2 a_uv;
+layout(location = 3) in float a_shade;
+layout(location = 4) in float a_material;
+layout(set = 1, binding = 0) uniform Camera { mat4 view_proj; };
+layout(location = 0) out vec3 v_world;
+layout(location = 1) out vec3 v_normal;
+layout(location = 2) out vec2 v_uv;
+layout(location = 3) out float v_shade;
+layout(location = 4) flat out float v_material;
+void main() {
+    v_world = a_pos;
+    v_normal = a_normal;
+    v_uv = a_uv;
+    v_shade = a_shade;
+    v_material = a_material;
+    gl_Position = view_proj * vec4(a_pos, 1.0);
 }
-let^sky_fragment = "
-    layout(location = 0) in vec2 v_uv;
-    layout(location = 0) out vec4 result;
-    layout(set = 3, binding = 0) uniform Sky {
-        vec4 ahead; vec4 right; vec4 up; vec4 info; vec4 sun; vec4 haze;
-    };
-    void main() {
-        vec2 p = v_uv * 2.0 - 1.0;
-        vec3 ray = normalize(ahead.xyz + right.xyz * p.x * info.x + up.xyz * p.y);
-        vec3 zenith = mix(vec3(0.008, 0.015, 0.045), vec3(0.29, 0.57, 0.79), sun.w);
-        vec3 color = mix(haze.rgb, zenith,
-                         clamp(ray.y * 1.4, 0.0, 1.0));
-        float glow = pow(max(dot(ray, sun.xyz), 0.0), 32.0);
-        color += vec3(0.18, 0.14, 0.05) * glow * sun.w;
-        if (ray.y > 0.0 && dot(ray, sun.xyz) > 0.9975) color = vec3(1.0, 0.95, 0.72);
-        if (ray.y > 0.0 && dot(ray, -sun.xyz) > 0.9985) color = vec3(0.72, 0.79, 0.9);
-        // A sparse hash of direction cells makes stars stay fixed as we turn.
-        vec3 star_cell = floor(ray * 220.0);
-        float star = fract(sin(dot(star_cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
-        if (ray.y > 0.12 && star > 0.9985) color += vec3(0.65) * (1.0 - sun.w);
-        if (ray.y > 0.08) {
-            vec2 p = ray.xz * (30.0 / ray.y) + vec2(info.y * 0.22, 0.0);
-            vec2 grid = floor(p / 5.0);
-            float n = sin(grid.x * 1.7 + sin(grid.y * 2.3)) + cos(grid.y * 1.2);
-            vec3 cloud = mix(vec3(0.09, 0.12, 0.20), vec3(0.95, 0.96, 0.92), sun.w);
-            if (n > 0.8) color = mix(color, cloud, smoothstep(0.08, 0.3, ray.y));
-        }
-        if (info.z > 0.0) color = vec3(0.08, 0.28, 0.38);
-        result = vec4(color, 1.0);
+"
+let^world_fragment = "
+layout(set = 3, binding = 0) uniform Scene {
+    mat4 view_proj;
+    vec4 eye;
+    vec4 target;
+    vec4 lights[16];
+    vec4 haze;
+    vec4 sun;
+};
+layout(location = 0) in vec3 v_world;
+layout(location = 1) in vec3 v_normal;
+layout(location = 2) in vec2 v_uv;
+layout(location = 3) in float v_shade;
+layout(location = 4) flat in float v_material;
+layout(set = 2, binding = 0) uniform sampler2D atlas;
+layout(location = 0) out vec4 result;
+void main() {
+    vec3 base = texture(atlas, v_uv).rgb;
+    float direct = max(dot(v_normal, sun.xyz), 0.0) * sun.w;
+    vec3 light = mix(vec3(0.10, 0.14, 0.23), vec3(0.64, 0.73, 0.82) * 0.48, sun.w);
+    light += vec3(0.66, 0.59, 0.43) * direct;
+    light *= v_shade;
+    for (int i = 0; i < 16; i++) {
+        float d = length(lights[i].xyz - v_world);
+        float glow = max(0.0, 1.0 - d / 7.0);
+        light += vec3(1.0, 0.63, 0.25) * glow * glow * lights[i].w;
     }
-    "
+    if (v_material == 12.0) light = max(light, vec3(1.1, 0.96, 0.7));
+    if (v_material == 10.0) {
+        float wave = sin(v_world.x * 2.7 + eye.w) * sin(v_world.z * 3.1 - eye.w);
+        base += vec3(0.04, 0.07, 0.08) * wave;
+        light = max(light, vec3(mix(0.15, 0.72, sun.w)));
+    }
+    vec3 color = base * light;
+    vec3 cell = floor(v_world - v_normal * 0.002);
+    bool targeted = all(lessThan(abs(cell - target.xyz), vec3(0.1)));
+    if (v_material >= 0.0 && target.w >= 0.0 && targeted) {
+        vec3 local = fract(v_world);
+        vec3 edge = min(local, 1.0 - local) + abs(v_normal);
+        float border = min(edge.x, min(edge.y, edge.z));
+        if (border < 0.018) color = vec3(1.0, 0.91, 0.57);
+        // A progressively denser cracked pattern while holding mine.
+        vec3 crack = abs(fract(v_world * 5.0 + sin(v_world.zxy * 13.0) * 0.2) - 0.5);
+        if (target.w > 0.0 && min(crack.x + crack.y, crack.y + crack.z) < target.w * 0.18)
+            color *= 0.28;
+    }
+    float fog = smoothstep(34.0, 83.0, length(eye.xyz - v_world));
+    if (haze.w > 0.0) fog = 1.0 - exp(-length(eye.xyz - v_world) * 0.17);
+    result = vec4(mix(color, haze.rgb, fog), 1.0);
+}
+"
+let^sky_vertex = "
+layout(location = 0) out vec2 v_uv;
+void main() {
+    vec2 p = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));
+    v_uv = p;
+    gl_Position = vec4(p * 2.0 - 1.0, 0.9999, 1.0);
+}
+"
+struct^Sky { ahead:F4, right:F4, up:F4, info:F4, sun:F4, haze:F4 }
+let^sky_fragment = "
+layout(location = 0) in vec2 v_uv;
+layout(location = 0) out vec4 result;
+layout(set = 3, binding = 0) uniform Sky {
+    vec4 ahead; vec4 right; vec4 up; vec4 info; vec4 sun; vec4 haze;
+};
+void main() {
+    vec2 p = v_uv * 2.0 - 1.0;
+    vec3 ray = normalize(ahead.xyz + right.xyz * p.x * info.x + up.xyz * p.y);
+    vec3 zenith = mix(vec3(0.008, 0.015, 0.045), vec3(0.29, 0.57, 0.79), sun.w);
+    vec3 color = mix(haze.rgb, zenith,
+                        clamp(ray.y * 1.4, 0.0, 1.0));
+    float glow = pow(max(dot(ray, sun.xyz), 0.0), 32.0);
+    color += vec3(0.18, 0.14, 0.05) * glow * sun.w;
+    if (ray.y > 0.0 && dot(ray, sun.xyz) > 0.9975) color = vec3(1.0, 0.95, 0.72);
+    if (ray.y > 0.0 && dot(ray, -sun.xyz) > 0.9985) color = vec3(0.72, 0.79, 0.9);
+    // A sparse hash of direction cells makes stars stay fixed as we turn.
+    vec3 star_cell = floor(ray * 220.0);
+    float star = fract(sin(dot(star_cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    if (ray.y > 0.12 && star > 0.9985) color += vec3(0.65) * (1.0 - sun.w);
+    if (ray.y > 0.08) {
+        vec2 p = ray.xz * (30.0 / ray.y) + vec2(info.y * 0.22, 0.0);
+        vec2 grid = floor(p / 5.0);
+        float n = sin(grid.x * 1.7 + sin(grid.y * 2.3)) + cos(grid.y * 1.2);
+        vec3 cloud = mix(vec3(0.09, 0.12, 0.20), vec3(0.95, 0.96, 0.92), sun.w);
+        if (n > 0.8) color = mix(color, cloud, smoothstep(0.08, 0.3, ray.y));
+    }
+    if (info.z > 0.0) color = vec3(0.08, 0.28, 0.38);
+    result = vec4(color, 1.0);
+}
+"
 
 # --- a tiny immediate-mode HUD, also drawn with gfx ---------------------------
 
@@ -1215,7 +1213,7 @@ let^glyph = f^c:u8^-> i64^{
     }
     return^-1
 }
-struct^HudVertex { pos:F2 = F2{x = 0.0, y = 0.0}, uv:F2 = F2{x = 0.0, y = 0.0}, color:u8^[4] }
+struct^HudVertex { pos:F2 = { x = 0.0, y = 0.0 }, uv:F2 = { x = 0.0, y = 0.0 }, color:u8^[4] }
 let^INK:u8^[4] = {235, 237, 223, 255}
 let^MUTED:u8^[4] = {166, 183, 181, 255}
 let^GOLD:u8^[4] = {250, 209, 116, 255}
@@ -1373,24 +1371,24 @@ let^hud = p^out:ref^HudVertex[grow^], size:F2, hit:Hit, progress:f32^, crafting:
     }
 }
 let^hud_vertex = "
-    layout(location = 0) in vec2 a_pos;
-    layout(location = 1) in vec2 a_uv;
-    layout(location = 2) in vec4 a_color;
-    layout(set = 1, binding = 0) uniform Screen { vec4 size; };
-    layout(location = 0) out vec2 v_uv;
-    layout(location = 1) out vec4 v_color;
-    void main() {
-        v_uv = a_uv; v_color = a_color;
-        gl_Position = vec4(a_pos.x / size.x * 2.0 - 1.0, 1.0 - a_pos.y / size.y * 2.0, 0.0, 1.0);
-    }
-    "
+layout(location = 0) in vec2 a_pos;
+layout(location = 1) in vec2 a_uv;
+layout(location = 2) in vec4 a_color;
+layout(set = 1, binding = 0) uniform Screen { vec4 size; };
+layout(location = 0) out vec2 v_uv;
+layout(location = 1) out vec4 v_color;
+void main() {
+    v_uv = a_uv; v_color = a_color;
+    gl_Position = vec4(a_pos.x / size.x * 2.0 - 1.0, 1.0 - a_pos.y / size.y * 2.0, 0.0, 1.0);
+}
+"
 let^hud_fragment = "
-    layout(location = 0) in vec2 v_uv;
-    layout(location = 1) in vec4 v_color;
-    layout(set = 2, binding = 0) uniform sampler2D atlas;
-    layout(location = 0) out vec4 result;
-    void main() { result = texture(atlas, v_uv) * v_color; }
-    "
+layout(location = 0) in vec2 v_uv;
+layout(location = 1) in vec4 v_color;
+layout(set = 2, binding = 0) uniform sampler2D atlas;
+layout(location = 0) out vec4 result;
+void main() { result = texture(atlas, v_uv) * v_color; }
+"
 
 # --- gameplay checks, with no window -----------------------------------------
 
@@ -1496,21 +1494,21 @@ let^gameplay_tests = p^{
     # if run is held too. Jumping or releasing sneak still lets us leave.
     put(cell(60, 3, 60), BlockType.STONE)
     let^directions:F2[8] = {
-        F2{x = 1.0, y = 0.0}, F2{x = -1.0, y = 0.0},
-        F2{x = 0.0, y = 1.0}, F2{x = 0.0, y = -1.0},
-        F2{x = 1.0, y = 1.0}, F2{x = -1.0, y = 1.0},
-        F2{x = 1.0, y = -1.0}, F2{x = -1.0, y = -1.0}
+        { x = 1.0, y = 0.0 }, { x = -1.0, y = 0.0 },
+        { x = 0.0, y = 1.0 }, { x = 0.0, y = -1.0 },
+        { x = 1.0, y = 1.0 }, { x = -1.0, y = 1.0 },
+        { x = 1.0, y = -1.0 }, { x = -1.0, y = -1.0 }
     }
-    let^platform = Player{feet = F3{x = 60.5, y = 4.001, z = 60.5}, grounded = true^}
+    let^platform = Player{ feet = { x = 60.5, y = 4.001, z = 60.5 }, grounded = true^ }
     for^d:i64^from^0 to^7 {
         game.player := platform
         for^1 to^240 { walk(directions[d], false^, true^, true^) }
         assert^(game.player.feet.y > 3.999 and^game.player.grounded and^supported(game.player.feet))
     }
-    for^1 to^120 { walk(F2{x = -1.0, y = -1.0}, false^, false^) }
+    for^1 to^120 { walk(F2{ x = -1.0, y = -1.0 }, false^, false^) }
     assert^(game.player.feet.y < 3.0)
     game.player := platform
-    for^i:i64^from^0 to^119 { walk(F2{x = 1.0, y = 0.0}, i = 0, false^, true^) }
+    for^i:i64^from^0 to^119 { walk(F2{ x = 1.0, y = 0.0 }, i = 0, false^, true^) }
     assert^(game.player.feet.x > 61.3 and^game.player.feet.y < 3.95)
     game.player := platform
     put(cell(60, 3, 60), BlockType.AIR)
@@ -1664,7 +1662,7 @@ rebuild_dirty()
 var^hud_buffer = gfx.Buffer{}
 # One buffer, sized once for every fragment. Each frame uploads only the
 # live fragments; the GPU buffer is reused throughout.
-let^one_vertex:Vertex[1] = {Vertex{}}
+let^one_vertex:Vertex[1] = { Vertex{} }
 var^debris_buffer = gfx.buffer_sized(
     gfx.BUFFER_VERTEX,
     MAX_DEBRIS * 6 * one_vertex.bytes.len,
@@ -1682,7 +1680,9 @@ var^mining_at = cell(-1, -1, -1)
 var^place_delay:f32^= 0.0
 var^wait_for_buttons = false^
 let^KEYS:string^[8] = {"1", "2", "3", "4", "5", "6", "7", "8"}
-if^!paused and^!gfx.set_mouse_relative(true^) { say("MOUSE CAPTURE FAILED - USE ARROW KEYS TO LOOK") }
+if^!paused and^!gfx.set_mouse_relative(true^) {
+    say("MOUSE CAPTURE FAILED - USE ARROW KEYS TO LOOK")
+}
 
 repeat^while^gfx.frame() {
     let^pixels = F2{x = f32^(gfx.width()), y = f32^(gfx.height())}
@@ -1859,8 +1859,8 @@ repeat^while^gfx.frame() {
     let^sun_dir = sun_direction()
     let^sun = F4{x = sun_dir.x, y = sun_dir.y, z = sun_dir.z, w = daylight()}
     let^target = if^hit.found and^!crafting and^!paused:
-        F4{x = f32^(hit.at.x), y = f32^(hit.at.y), z = f32^(hit.at.z), w = progress}
-        el^: F4{w = -1.0};
+        F4{ x = f32^(hit.at.x), y = f32^(hit.at.y), z = f32^(hit.at.z), w = progress }
+        el^: F4{ w = -1.0 };
     let^scene:Scene[1] = {Scene{
         view_proj = view_proj,
         eye = F4{x = camera.x, y = camera.y, z = camera.z, w = elapsed},
@@ -1871,10 +1871,10 @@ repeat^while^gfx.frame() {
     }}
     let^lens:f32^= math.tan(0.575)    # half the 1.15 radian field of view
     var^sky = {Sky{
-        ahead = F4{x = ahead.x / lens, y = ahead.y / lens, z = ahead.z / lens},
-        right = F4{x = right.x, y = right.y, z = right.z},
-        up = F4{x = up.x, y = up.y, z = up.z},
-        info = F4{x = aspect, y = elapsed, z = if^underwater: 1.0 el^: 0.0;},
+        ahead = { x = ahead.x / lens, y = ahead.y / lens, z = ahead.z / lens },
+        right = { x = right.x, y = right.y, z = right.z },
+        up = { x = up.x, y = up.y, z = up.z },
+        info = { x = aspect, y = elapsed, z = if^underwater: 1.0 el^: 0.0; },
         sun = sun,
         haze = haze
     }}
