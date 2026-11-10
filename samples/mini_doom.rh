@@ -516,17 +516,344 @@ let^TAU:f32^= 6.2831853
 let^PLAYER_RADIUS:f32^= 16.0
 let^PLAYER_HEIGHT:f32^= 56.0
 
-struct^Player {
-    pos:F2 = {}, z:f32^= 0.0, falling:f32^= 0.0, yaw:f32^= 0.0,
-    health:i64^= 100, armor:i64^= 0, bullets:i64^= 50, shells:i64^= 0,
-    weapon:i64^= 2, shotgun:bool^= false^, chaingun:bool^= false^, blue_key:bool^= false^,
-    cooldown:f32^= 0.0, flash:f32^= 0.0, hurt:f32^= 0.0, bonus:f32^= 0.0, bob:f32^= 0.0
+def^Player {
+    self^{
+        pos:F2 = {}, z:f32^= 0.0, falling:f32^= 0.0, yaw:f32^= 0.0,
+        health:i64^= 100, armor:i64^= 0, bullets:i64^= 50, shells:i64^= 0,
+        weapon:i64^= 2, shotgun:bool^= false^, chaingun:bool^= false^, blue_key:bool^= false^,
+        cooldown:f32^= 0.0, flash:f32^= 0.0, hurt:f32^= 0.0, bonus:f32^= 0.0, bob:f32^= 0.0
+    }
+
+    take_damage = p^self^, damage:i64^{
+        if^self^.health <= 0 or^won { return^}
+        let^absorbed = min(self^.armor, damage / 3)
+        self^.armor -= absorbed
+        self^.health := max(0, self^.health - damage + absorbed)
+        self^.hurt := 0.35
+        sound(3, self^.pos)
+        if^self^.health = 0 { say("YOU DIED.  R: TRY AGAIN") }
+    }
+
+    walk = p^self^, direction:F2, running:bool^{
+        let^forward = F2{x = math.cos(self^.yaw), y = math.sin(self^.yaw)}
+        let^right = F2{x = forward.y, y = -forward.x}
+        var^movement = forward * direction.y + right * direction.x
+        let^amount = movement.length()
+        if^amount > 1.0 { movement := movement * (1.0 / amount) }
+        movement := movement * ((if^running: f32^(260.0) el^: 170.0;) * STEP)
+        let^old = self^.pos
+        let^steps = max(1, i64^(math.ceil(movement.length() / 4.0)))
+        for^i from^1 to^steps {
+            self^.pos := slide(
+                self^.pos,
+                self^.z,
+                movement * (1.0 / f32^(steps)),
+                PLAYER_RADIUS,
+                -1,
+                false^
+            )
+            let^floor_z = sectors[sector_at(self^.pos)].floor
+            if^floor_z > self^.z {
+                self^.z := floor_z
+                self^.falling := 0.0
+            }
+        }
+        let^ground = sectors[sector_at(self^.pos)].floor
+        if^self^.z > ground {
+            self^.falling -= 700.0 * STEP
+            self^.z := max(ground, self^.z + self^.falling * STEP)
+        else^:
+            self^.z := ground
+            self^.falling := 0.0
+        }
+        self^.bob += F2.distance(old, self^.pos) * 0.055
+        if^F2.distance(old, self^.pos) > 0.001 {
+            for^i from^0 to^lines.len - 1 {
+                let^special = lines[i].special
+                if^special != 2 and^special != 88 { continue^}
+                let^t = intersect_ray(old, self^.pos - old, lines[i].a, lines[i].b)
+                if^t > 0.0 and^t <= 1.0 { activate_line(i, true^) }
+            }
+        }
+    }
+
+    use = p^self^{
+        let^direction = F2{ x = math.cos(self^.yaw), y = math.sin(self^.yaw) }
+        var^nearest:f32^= 80.0
+        var^found:i64^= -1
+        for^i from^0 to^lines.len - 1 {
+            let^line = lines[i]
+            let^t = intersect_ray(self^.pos, direction, line.a, line.b)
+            if^t < 0.0 or^t >= nearest { continue^}
+            let^b = back_sector(line)
+            # Usable faces and closed passages stop the use ray, so a farther
+            # switch is never activated through a wall or a closed door.
+            let^blocks = b < 0 or^sectors[b].ceiling <= sectors[b].floor
+            let^usable = line.special != 0 and^line.special != 2 and^line.special != 88 and^
+                ((line.b - line.a) × (self^.pos - line.a)) <= 0.0
+            if^blocks or^usable {
+                nearest := t
+                found := if^usable: i el^: -1;
+            }
+        }
+        if^found >= 0 { activate_line(found, false^) }
+    }
+
+    shoot = p^self^{
+        if^self^.cooldown > 0.0 or^self^.health <= 0 { return^}
+        let^weapon = self^.weapon
+        if^(weapon = 3 and^self^.shells = 0) or^((weapon = 2 or^weapon = 4) and^self^.bullets = 0) {
+            self^.weapon := 1
+            say("OUT OF AMMO - FISTS")
+            return^
+        }
+        if^weapon = 3 {
+            self^.shells -= 1
+        elif^weapon != 1:
+            self^.bullets -= 1
+        }
+        self^.cooldown := for^weapon: when^1: f32^(
+            0.42
+        ) when^2: f32^(0.28) when^3: f32^(0.85) other^: f32^(0.10);
+        self^.flash := 0.09
+        sound(if^weapon = 1: 2 el^weapon = 3: 1 el^: 0;, self^.pos)
+        let^pellets = if^weapon = 3: 7 el^: 1;
+        for^pellet from^1 to^pellets { self^.fire_pellet(weapon) }
+        # Noise wakes nearby monsters only through open sight lines.
+        for^i from^0 to^actors.len - 1 {
+            let^a = actors[i]
+            if^monster(a.kind) and^F2.distance(a.pos, self^.pos) < 1000.0 and^
+                visible(a.pos, a.z + 32.0, self^.pos, self^.z + 32.0) {
+                    actors[i].awake := true^
+                }
+        }
+    }
+
+    private^fire_pellet = p^self^, weapon:i64^{
+        let^spread = if^weapon = 3: f32^(random_int(101) - 50) * 0.0015
+        el^weapon = 4: f32^(random_int(101) - 50) * 0.0005 el^: 0.0;
+        let^direction = F2{ x = math.cos(self^.yaw + spread), y = math.sin(self^.yaw + spread) }
+        var^nearest = if^weapon = 1: f32^(70.0) el^: 1800.0;
+        var^target:i64^= -1
+        for^i from^0 to^actors.len - 1 {
+            let^a = actors[i]
+            if^!a.alive or^a.health <= 0 { continue^}
+            let^delta = a.pos - self^.pos
+            let^along = delta dot^direction
+            let^across = math.abs(direction × delta)
+            if^along <= 0.0 or^along >= nearest or^across > a.radius { continue^}
+            # Classic horizontal aiming, with a modest automatic vertical aim for
+            # stairs; the ray through the opening must still be clear.
+            if^math.abs(a.z + 28.0 - (self^.z + 41.0)) > 40.0 + along * 0.5 { continue^}
+            if^visible(self^.pos, self^.z + 41.0, a.pos, a.z + 28.0) {
+                target := i
+                nearest := along
+            }
+        }
+        if^target >= 0 {
+            let^damage:i64^= if^weapon = 1: 12 + random_int(12) el^: 5 * (1 + random_int(3));
+            actors[target].take_damage(damage)
+        }
+    }
 }
 
-struct^Actor {
-    pos:F2 = {}, z:f32^= 0.0, kind:i64^= 0, picture:i64^= 0, radius:f32^= 16.0,
-    health:i64^= 0, alive:bool^= true^, solid:bool^= false^, awake:bool^= false^,
-    timer:f32^= 0.0, pain:f32^= 0.0, death:f32^= 0.0, attacking:f32^= 0.0
+def^Actor {
+    self^{
+        # Stable slot in actors, used to exclude self from collision and blasts.
+        slot:i64^= -1,
+        pos:F2 = {}, z:f32^= 0.0, kind:i64^= 0, picture:i64^= 0, radius:f32^= 16.0,
+        health:i64^= 0, alive:bool^= true^, solid:bool^= false^, awake:bool^= false^,
+        timer:f32^= 0.0, pain:f32^= 0.0, death:f32^= 0.0, attacking:f32^= 0.0
+    }
+
+    update = p^self^{
+        if^!self^.alive { return^}
+        if^self^.death > 0.0 {
+            self^.update_dying()
+            return^
+        }
+        let^floor_z = sectors[sector_at(self^.pos)].floor
+        self^.z := max(floor_z, self^.z - 220.0 * STEP)
+        if^monster(self^.kind) { self^.update_monster() }
+    }
+
+    pickup = p^self^{
+        let^kind = self^.kind
+        var^taken = false^
+        var^text = "PICKED UP AMMO"
+        if^kind = 5 {
+            player.blue_key := true^
+            taken := true^
+            text := "BLUE KEY"
+        elif^kind = 2001:
+            taken := !player.shotgun or^player.shells < 100
+            if^!player.shotgun { player.weapon := 3 }
+            player.shotgun := true^
+            player.shells := min(100, player.shells + 8)
+            text := "SHOTGUN"
+        elif^kind = 2002:
+            taken := !player.chaingun or^player.bullets < 300
+            if^!player.chaingun { player.weapon := 4 }
+            player.chaingun := true^
+            player.bullets := min(300, player.bullets + 20)
+            text := "CHAINGUN"
+        elif^kind = 2008 or^kind = 2049:
+            taken := player.shells < 100
+            player.shells := min(100, player.shells + (if^kind = 2049: 20 el^: 4;))
+            text := "SHELLS"
+        elif^kind = 2007 or^kind = 2048 or^kind = 8 or^kind = 2010 or^kind = 2046 or^kind = 2047 or^
+            kind = 17 or^kind = 2003 or^kind = 2004 or^kind = 2005:
+            taken := player.bullets < 300
+            player.bullets := min(300, player.bullets + (if^kind = 2048 or^kind = 8: 50 el^: 10;))
+            if^kind = 8 { player.shells := min(100, player.shells + 8) }
+            if^kind != 2007 and^kind != 2048 and^kind != 8 { text := "SALVAGED BULLETS" }
+        elif^kind = 2011 or^kind = 2012 or^kind = 2013 or^kind = 2014 or^kind = 2023:
+            let^maximum:i64^= if^kind = 2013 or^kind = 2014: 200 el^: 100;
+            taken := player.health < maximum
+            let^amount:i64^= for^kind: when^2014: 1 when^2011: 10 when^2012: 25 other^: 100;
+            if^taken { player.health := min(maximum, player.health + amount) }
+            text := "HEALTH"
+        elif^kind = 2015 or^kind = 2018 or^kind = 2019:
+            let^amount:i64^= for^kind: when^2015: 1 when^2018: 100 other^: 200;
+            taken := if^kind = 2015: player.armor < 200 el^: player.armor < amount;
+            if^taken { player.armor := if^kind = 2015: player.armor + 1 el^: amount; }
+            text := "ARMOR"
+        }
+        if^taken {
+            self^.alive := false^
+            player.bonus := 0.18
+            say(text)
+            sound(if^kind = 2001 or^kind = 2002: 5 el^: 4;, player.pos)
+        }
+    }
+
+    take_damage = p^self^, damage:i64^{
+        if^!self^.alive or^self^.health <= 0 { return^}
+        self^.health -= damage
+        self^.awake := true^
+        self^.pain := 0.18
+        if^self^.health > 0 { return^}
+        self^.solid := false^
+        self^.death := 0.001
+        let^kind = self^.kind
+        let^pos = self^.pos
+        if^monster(kind) {
+            kills += 1
+            sound(11, pos)
+        }
+        # Barrels explode during update, not here: no recursive chain reactions.
+    }
+
+    private^launch_fireball = p^self^{
+        let^delta = player.pos - self^.pos
+        let^dist = max(1.0, delta.length())
+        fireballs[next_fireball] := Fireball{
+            pos = self^.pos, z = self^.z + 32.0,
+            velocity = delta * (280.0 / dist),
+            vz = (player.z + 30.0 - self^.z - 32.0) * 280.0 / dist,
+            life = 5.0
+        }
+        next_fireball := (next_fireball + 1) % fireballs.len
+        sound(9, self^.pos)
+    }
+
+    # A barrel's blast, once, as it starts to burst.
+    private^explode = p^self^{
+        sound(10, self^.pos)
+        let^dist = F2.distance(self^.pos, player.pos)
+        if^dist < 160.0 and^visible(self^.pos, self^.z + 24.0, player.pos, player.z + 32.0) {
+            player.take_damage(max(0, i64^(120.0 - dist * 0.7)))
+        }
+        for^j from^0 to^actors.len - 1 {
+            let^other = actors[j]
+            let^d = F2.distance(self^.pos, other.pos)
+            if^j != self^.slot and^other.health > 0 and^d < 160.0
+                and^visible(self^.pos, self^.z + 24.0, other.pos, other.z + 28.0) {
+                actors[j].take_damage(max(0, i64^(120.0 - d * 0.7)))
+            }
+        }
+    }
+
+    private^update_dying = p^self^{
+        let^old = self^.death
+        self^.death += STEP
+        if^self^.kind = 2035 and^old < 0.15 and^self^.death >= 0.15 { self^.explode() }
+        if^self^.kind = 2035 and^self^.death > 0.65 { self^.alive := false^}
+        # Guards drop a clip or a shotgun once their corpse settles, as a separate
+        # actor so that the corpse stays visible.
+        if^old < 0.8 and^self^.death >= 0.8 and^(
+            self^.kind = 3004 or^self^.kind = 9
+        ) and^actors.len < 512 {
+            let^kind:i64^= if^self^.kind = 9: 2001 el^: 2007;
+            actors.push(Actor{
+                slot = actors.len, pos = self^.pos, z = self^.z, kind = kind,
+                picture = find_picture(thing_picture(kind).bytes, 0)
+            })
+        }
+    }
+
+    private^attack = p^self^, dist:f32^{
+        let^melee = self^.kind = 3002 or^self^.kind = 58
+        if^melee and^dist >= self^.radius + 38.0 { return^}
+        self^.attacking := 0.28
+        self^.timer := 1.0 + f32^(random_int(100)) * 0.012
+        if^self^.kind = 3001 and^dist > 75.0 {
+            self^.launch_fireball()
+        elif^melee or^dist < 75.0:
+            player.take_damage(5 + random_int(12))
+        else^:
+            sound(0, self^.pos)
+            if^random_int(100) < max(20, 85 - i64^(dist * 0.08)) {
+                player.take_damage(if^self^.kind = 9: 6 + random_int(10) el^: 3 + random_int(7);)
+            }
+        }
+    }
+
+    private^update_monster = p^self^{
+        self^.pain := max(0.0, self^.pain - STEP)
+        self^.attacking := max(0.0, self^.attacking - STEP)
+        self^.timer -= STEP
+        let^delta = player.pos - self^.pos
+        let^dist = delta.length()
+        let^sees = player.health > 0 and^dist < 1500.0
+            and^visible(self^.pos, self^.z + 36.0, player.pos, player.z + 32.0)
+        if^sees { self^.awake := true^}
+        if^!self^.awake or^player.health <= 0 or^self^.pain > 0.0 { return^}
+        if^sees and^self^.timer <= 0.0 and^(
+            dist < 650.0 or^dist < self^.radius + 38.0
+        ) { self^.attack(dist) }
+        if^self^.attacking > 0.0 or^dist < 1.0 { return^}
+        let^speed = if^self^.kind = 3002 or^self^.kind = 58: f32^(105.0) el^: 58.0;
+        let^moved = slide(
+            self^.pos,
+            self^.z,
+            delta * (speed * STEP / dist),
+            self^.radius,
+            self^.slot,
+            true^
+        )
+        self^.pos := moved
+        self^.z := max(self^.z, sectors[sector_at(moved)].floor)
+    }
+
+    sprite = f^self^{
+        if^self^.kind = 2035 {
+            if^self^.death > 0.0 { return^frame_picture("BEXP", min(4, i64^(self^.death * 8.0))) }
+            return^frame_picture("BAR1", i64^(game_time * 4.0) % 2)
+        }
+        if^!monster(self^.kind) { return^self^.picture }
+        let^prefix = monster_prefix(self^.kind)
+        if^self^.death > 0.0 {
+            let^first:i64^= if^self^.kind = 3001 or^self^.kind = 3002 or^self^.kind = 58: 8 el^: 7;
+            let^last:i64^= if^self^.kind = 3002 or^self^.kind = 58: 5 el^: 4;
+            return^frame_picture(prefix, first + min(last, i64^(self^.death * 7.0)))
+        }
+        if^self^.pain > 0.0 {
+            return^frame_picture(prefix, if^self^.kind = 3004 or^self^.kind = 9: 6 el^: 7;)
+        }
+        if^self^.attacking > 0.0 { return^frame_picture(prefix, 5) }
+        return^frame_picture(prefix, if^self^.awake: i64^(game_time * 8.0) % 4 el^: 0;)
+    }
 }
 
 var^player = Player{}
@@ -680,49 +1007,6 @@ let^slide = f^pos:F2, z:f32^, delta:F2, radius:f32^, ignore:i64^, enemy:bool^{
     return^next
 }
 
-let^walk = p^direction:F2, running:bool^{
-    let^forward = F2{x = math.cos(player.yaw), y = math.sin(player.yaw)}
-    let^right = F2{x = forward.y, y = -forward.x}
-    var^movement = forward * direction.y + right * direction.x
-    let^amount = movement.length()
-    if^amount > 1.0 { movement := movement * (1.0 / amount) }
-    movement := movement * ((if^running: f32^(260.0) el^: 170.0;) * STEP)
-    let^old = player.pos
-    let^steps = max(1, i64^(math.ceil(movement.length() / 4.0)))
-    for^i from^1 to^steps {
-        player.pos := slide(
-            player.pos,
-            player.z,
-            movement * (1.0 / f32^(steps)),
-            PLAYER_RADIUS,
-            -1,
-            false^
-        )
-        let^floor_z = sectors[sector_at(player.pos)].floor
-        if^floor_z > player.z {
-            player.z := floor_z
-            player.falling := 0.0
-        }
-    }
-    let^ground = sectors[sector_at(player.pos)].floor
-    if^player.z > ground {
-        player.falling -= 700.0 * STEP
-        player.z := max(ground, player.z + player.falling * STEP)
-    else^:
-        player.z := ground
-        player.falling := 0.0
-    }
-    player.bob += F2.distance(old, player.pos) * 0.055
-    if^F2.distance(old, player.pos) > 0.001 {
-        for^i from^0 to^lines.len - 1 {
-            let^special = lines[i].special
-            if^special != 2 and^special != 88 { continue^}
-            let^t = intersect_ray(old, player.pos - old, lines[i].a, lines[i].b)
-            if^t > 0.0 and^t <= 1.0 { activate_line(i, true^) }
-        }
-    }
-}
-
 # --- moving sectors and use triggers ---------------------------------------------------
 
 let^neighbor_limits = f^sector:i64^{
@@ -784,28 +1068,6 @@ let^activate_line = p^index:i64^, crossing:bool^{
         }
         sound(if^special = 2: 6 el^: 7;, player.pos)
     }
-}
-
-let^use = p^{
-    let^direction = F2{ x = math.cos(player.yaw), y = math.sin(player.yaw) }
-    var^nearest:f32^= 80.0
-    var^found:i64^= -1
-    for^i from^0 to^lines.len - 1 {
-        let^line = lines[i]
-        let^t = intersect_ray(player.pos, direction, line.a, line.b)
-        if^t < 0.0 or^t >= nearest { continue^}
-        let^b = back_sector(line)
-        # Usable faces and closed passages stop the use ray, so a farther
-        # switch is never activated through a wall or a closed door.
-        let^blocks = b < 0 or^sectors[b].ceiling <= sectors[b].floor
-        let^usable = line.special != 0 and^line.special != 2 and^line.special != 88 and^
-            ((line.b - line.a) × (player.pos - line.a)) <= 0.0
-        if^blocks or^usable {
-            nearest := t
-            found := if^usable: i el^: -1;
-        }
-    }
-    if^found >= 0 { activate_line(found, false^) }
 }
 
 let^occupied = f^index:i64^, ceiling:f32^{
@@ -883,16 +1145,6 @@ let^move_sectors = p^{
     }
 }
 
-let^hurt_player = p^damage:i64^{
-    if^player.health <= 0 or^won { return^}
-    let^absorbed = min(player.armor, damage / 3)
-    player.armor -= absorbed
-    player.health := max(0, player.health - damage + absorbed)
-    player.hurt := 0.35
-    sound(3, player.pos)
-    if^player.health = 0 { say("YOU DIED.  R: TRY AGAIN") }
-}
-
 let^tick = p^direction:F2, running:bool^, firing:bool^{
     game_time += STEP
     message_time := max(0.0, message_time - STEP)
@@ -902,8 +1154,8 @@ let^tick = p^direction:F2, running:bool^, firing:bool^{
     player.bonus := max(0.0, player.bonus - STEP)
     move_sectors()
     if^player.health > 0 {
-        walk(direction, running)
-        if^firing { shoot() }
+        player.walk(direction, running)
+        if^firing { player.shoot() }
         let^here = sector_at(player.pos)
         if^sectors[here].special = 9 and^!sectors[here].secret_found {
             sectors[here].secret_found := true^
@@ -914,14 +1166,14 @@ let^tick = p^direction:F2, running:bool^, firing:bool^{
         if^damage_clock >= 1.0 {
             damage_clock -= 1.0
             if^sectors[here].special = 7 and^player.z <= sectors[here].floor + 1.0 {
-                hurt_player(5)
+                player.take_damage(5)
             }
         }
         for^i from^0 to^actors.len - 1 {
             let^a = actors[i]
             if^a.alive and^a.death = 0.0 and^!a.solid and^F2.distance(a.pos, player.pos) < 28.0
                 and^math.abs(a.z - player.z) < 32.0 {
-                pickup(i)
+                actors[i].pickup()
             }
         }
     }
@@ -930,7 +1182,27 @@ let^tick = p^direction:F2, running:bool^, firing:bool^{
 
 # --- monsters, pickups and sound -------------------------------------------------------
 
-struct^Fireball { pos:F2 = {}, z:f32^= 0.0, velocity:F2 = {}, vz:f32^= 0.0, life:f32^= 0.0 }
+def^Fireball {
+    self^{ pos:F2 = {}, z:f32^= 0.0, velocity:F2 = {}, vz:f32^= 0.0, life:f32^= 0.0 }
+
+    update = p^self^{
+        if^self^.life <= 0.0 { return^}
+        let^next = self^.pos + self^.velocity * STEP
+        let^next_z = self^.z + self^.vz * STEP
+        if^!visible(self^.pos, self^.z, next, next_z) {
+            self^.life := 0.0
+            return^
+        }
+        self^.pos := next
+        self^.z := next_z
+        self^.life -= STEP
+        if^F2.distance(next, player.pos) < 22.0 and^next_z > player.z
+            and^next_z < player.z + PLAYER_HEIGHT {
+            player.take_damage(10 + random_int(15))
+            self^.life := 0.0
+        }
+    }
+}
 var^fireballs = Fireball[max^64]{}
 var^sounds = audio.Sound[grow^]{}
 
@@ -945,35 +1217,35 @@ let^monster = f^kind:i64^{
 
 let^monster_prefix = f^kind:i64^{
     for^kind:
-when^3004: "POSS"
-when^9: "SPOS"
-when^3001: "TROO"
-other^:"SARG";
+    when^3004: "POSS"
+    when^9: "SPOS"
+    when^3001: "TROO"
+    other^:"SARG";
 }
 
 let^monster_health = f^kind:i64^-> i64^{
     for^kind:
-when^3004: 20
-when^9: 30
-when^3001: 60
-other^: 150;
+    when^3004: 20
+    when^9: 30
+    when^3001: 60
+    other^: 150;
 }
 
 let^thing_picture = f^kind:i64^{
     for^kind:
-when^3004: "POSSA1" when^9: "SPOSA1" when^3001: "TROOA1" when^3002, 58: "SARGA1"
-when^2001: "SHOTA0" when^2002: "MGUNA0" when^2003: "LAUNA0" when^2004: "PLASA0"
-when^2005: "CSAWA0" when^2006: "BFUGA0" when^2007: "CLIPA0" when^2008: "SHELA0"
-when^2010: "ROCKA0" when^2046: "BROKA0" when^2047: "CELLA0" when^2048: "AMMOA0"
-when^2049: "SBOXA0" when^17: "CELPA0" when^8: "BPAKA0"
-when^2011: "STIMA0" when^2012: "MEDIA0" when^2013: "SOULA0" when^2014: "BON1A0"
-when^2015: "BON2A0" when^2018: "ARM1A0" when^2019: "ARM2A0" when^2023: "PSTRA0"
-when^5: "BKEYA0" when^2035: "BAR1A0" when^2028: "COLUA0"
-when^43: "TRE1A0" when^54: "TRE2A0" when^47: "SMITA0" when^48: "ELECA0"
-when^10, 12: "PLAYW0" when^15: "PLAYN0" when^18: "POSSL0"
-when^19: "SPOSL0" when^20: "TROOM0" when^21: "SARGN0" when^24: "POL5A0"
-when^26: "POL6A0" when^60: "GOR4A0"
-other^: "";
+    when^3004: "POSSA1" when^9: "SPOSA1" when^3001: "TROOA1" when^3002, 58: "SARGA1"
+    when^2001: "SHOTA0" when^2002: "MGUNA0" when^2003: "LAUNA0" when^2004: "PLASA0"
+    when^2005: "CSAWA0" when^2006: "BFUGA0" when^2007: "CLIPA0" when^2008: "SHELA0"
+    when^2010: "ROCKA0" when^2046: "BROKA0" when^2047: "CELLA0" when^2048: "AMMOA0"
+    when^2049: "SBOXA0" when^17: "CELPA0" when^8: "BPAKA0"
+    when^2011: "STIMA0" when^2012: "MEDIA0" when^2013: "SOULA0" when^2014: "BON1A0"
+    when^2015: "BON2A0" when^2018: "ARM1A0" when^2019: "ARM2A0" when^2023: "PSTRA0"
+    when^5: "BKEYA0" when^2035: "BAR1A0" when^2028: "COLUA0"
+    when^43: "TRE1A0" when^54: "TRE2A0" when^47: "SMITA0" when^48: "ELECA0"
+    when^10, 12: "PLAYW0" when^15: "PLAYN0" when^18: "POSSL0"
+    when^19: "SPOSL0" when^20: "TROOM0" when^21: "SARGN0" when^24: "POL5A0"
+    when^26: "POL6A0" when^60: "GOR4A0"
+    other^: "";
 }
 
 let^load_sounds = p^quiet:bool^{
@@ -1024,7 +1296,8 @@ let^spawn_things = p^{
         let^enemy = monster(kind)
         let^solid = enemy or^kind = 2035 or^kind = 2028 or^kind = 43 or^kind = 54 or^kind = 47 or^kind = 48
         actors.push(Actor{
-            pos = pos, z = sectors[sector_at(pos)].floor, kind = kind, picture = picture,
+            slot = actors.len, pos = pos, z = sectors[sector_at(pos)].floor,
+            kind = kind, picture = picture,
             radius = if^kind = 3002 or^kind = 58: f32^(30.0) el^: 16.0;,
             health = if^enemy: monster_health(kind) el^kind = 2035: 20 el^: 0;,
             solid = solid, timer = 0.5 + f32^(i % 10) * 0.1
@@ -1033,253 +1306,11 @@ let^spawn_things = p^{
     }
 }
 
-let^pickup = p^index:i64^{
-    let^kind = actors[index].kind
-    var^taken = false^
-    var^text = "PICKED UP AMMO"
-    if^kind = 5 {
-        player.blue_key := true^
-        taken := true^
-        text := "BLUE KEY"
-    elif^kind = 2001:
-        taken := !player.shotgun or^player.shells < 100
-        if^!player.shotgun { player.weapon := 3 }
-        player.shotgun := true^
-        player.shells := min(100, player.shells + 8)
-        text := "SHOTGUN"
-    elif^kind = 2002:
-        taken := !player.chaingun or^player.bullets < 300
-        if^!player.chaingun { player.weapon := 4 }
-        player.chaingun := true^
-        player.bullets := min(300, player.bullets + 20)
-        text := "CHAINGUN"
-    elif^kind = 2008 or^kind = 2049:
-        taken := player.shells < 100
-        player.shells := min(100, player.shells + (if^kind = 2049: 20 el^: 4;))
-        text := "SHELLS"
-    elif^kind = 2007 or^kind = 2048 or^kind = 8 or^kind = 2010 or^kind = 2046 or^kind = 2047 or^
-        kind = 17 or^kind = 2003 or^kind = 2004 or^kind = 2005:
-        taken := player.bullets < 300
-        player.bullets := min(300, player.bullets + (if^kind = 2048 or^kind = 8: 50 el^: 10;))
-        if^kind = 8 { player.shells := min(100, player.shells + 8) }
-        if^kind != 2007 and^kind != 2048 and^kind != 8 { text := "SALVAGED BULLETS" }
-    elif^kind = 2011 or^kind = 2012 or^kind = 2013 or^kind = 2014 or^kind = 2023:
-        let^maximum:i64^= if^kind = 2013 or^kind = 2014: 200 el^: 100;
-        taken := player.health < maximum
-        let^amount:i64^= for^kind: when^2014: 1 when^2011: 10 when^2012: 25 other^: 100;
-        if^taken { player.health := min(maximum, player.health + amount) }
-        text := "HEALTH"
-    elif^kind = 2015 or^kind = 2018 or^kind = 2019:
-        let^amount:i64^= for^kind: when^2015: 1 when^2018: 100 other^: 200;
-        taken := if^kind = 2015: player.armor < 200 el^: player.armor < amount;
-        if^taken { player.armor := if^kind = 2015: player.armor + 1 el^: amount; }
-        text := "ARMOR"
-    }
-    if^taken {
-        actors[index].alive := false^
-        player.bonus := 0.18
-        say(text)
-        sound(if^kind = 2001 or^kind = 2002: 5 el^: 4;, player.pos)
-    }
-}
-
-let^damage_actor = p^index:i64^, damage:i64^{
-    let^a = ref^actors[index]
-    if^!a.alive or^a.health <= 0 { return^}
-    a.health -= damage
-    a.awake := true^
-    a.pain := 0.18
-    if^a.health > 0 { return^}
-    a.solid := false^
-    a.death := 0.001
-    let^kind = a.kind
-    let^pos = a.pos
-    if^monster(kind) {
-        kills += 1
-        sound(11, pos)
-    }
-    # Barrels explode in update_actors, not here: no recursive chain reactions.
-}
-
-let^shoot = p^{
-    if^player.cooldown > 0.0 or^player.health <= 0 { return^}
-    let^weapon = player.weapon
-    if^(weapon = 3 and^player.shells = 0) or^((weapon = 2 or^weapon = 4) and^player.bullets = 0) {
-        player.weapon := 1
-        say("OUT OF AMMO - FISTS")
-        return^
-    }
-    if^weapon = 3 {
-        player.shells -= 1
-    elif^weapon != 1:
-        player.bullets -= 1
-    }
-    player.cooldown := for^weapon: when^1: f32^(
-        0.42
-    ) when^2: f32^(0.28) when^3: f32^(0.85) other^: f32^(0.10);
-    player.flash := 0.09
-    sound(if^weapon = 1: 2 el^weapon = 3: 1 el^: 0;, player.pos)
-    let^pellets = if^weapon = 3: 7 el^: 1;
-    for^pellet from^1 to^pellets { fire_pellet(weapon) }
-    # Noise wakes nearby monsters only through open sight lines.
-    for^i from^0 to^actors.len - 1 {
-        let^a = actors[i]
-        if^monster(a.kind) and^F2.distance(a.pos, player.pos) < 1000.0 and^
-            visible(a.pos, a.z + 32.0, player.pos, player.z + 32.0) {
-                actors[i].awake := true^
-            }
-    }
-}
-
-let^fire_pellet = p^weapon:i64^{
-    let^spread = if^weapon = 3: f32^(random_int(101) - 50) * 0.0015
-        el^weapon = 4: f32^(random_int(101) - 50) * 0.0005 el^: 0.0;
-    let^direction = F2{ x = math.cos(player.yaw + spread), y = math.sin(player.yaw + spread) }
-    var^nearest = if^weapon = 1: f32^(70.0) el^: 1800.0;
-    var^target:i64^= -1
-    for^i from^0 to^actors.len - 1 {
-        let^a = actors[i]
-        if^!a.alive or^a.health <= 0 { continue^}
-        let^delta = a.pos - player.pos
-        let^along = delta dot^direction
-        let^across = math.abs(direction × delta)
-        if^along <= 0.0 or^along >= nearest or^across > a.radius { continue^}
-        # Classic horizontal aiming, with a modest automatic vertical aim for
-        # stairs; the ray through the opening must still be clear.
-        if^math.abs(a.z + 28.0 - (player.z + 41.0)) > 40.0 + along * 0.5 { continue^}
-        if^visible(player.pos, player.z + 41.0, a.pos, a.z + 28.0) {
-            target := i
-            nearest := along
-        }
-    }
-    if^target >= 0 {
-        let^damage:i64^= if^weapon = 1: 12 + random_int(12) el^: 5 * (1 + random_int(3));
-        damage_actor(target, damage)
-    }
-}
-
-let^launch_fireball = p^a:Actor {
-    let^delta = player.pos - a.pos
-    let^dist = max(1.0, delta.length())
-    fireballs[next_fireball] := Fireball{
-        pos = a.pos, z = a.z + 32.0,
-        velocity = delta * ( 280.0 / dist ),
-        vz = (player.z + 30.0 - a.z - 32.0) * 280.0 / dist,
-        life = 5.0
-    }
-    next_fireball := (next_fireball + 1) % fireballs.len
-    sound(9, a.pos)
-}
-
-# A barrel's blast, once, as it starts to burst.
-let^explode = p^i:i64^{
-    let^a = actors[i]
-    sound(10, a.pos)
-    let^dist = F2.distance(a.pos, player.pos)
-    if^dist < 160.0 and^visible(a.pos, a.z + 24.0, player.pos, player.z + 32.0) {
-        hurt_player(max(0, i64^(120.0 - dist * 0.7)))
-    }
-    for^j from^0 to^actors.len - 1 {
-        let^other = actors[j]
-        let^d = F2.distance(a.pos, other.pos)
-        if^j != i and^other.health > 0 and^d < 160.0
-        and^visible(a.pos, a.z + 24.0, other.pos, other.z + 28.0) {
-            damage_actor(j, max(0, i64^(120.0 - d * 0.7)))
-        }
-    }
-}
-
-let^update_dying = p^i:i64^{
-    let^old = actors[i].death
-    actors[i].death += STEP
-    let^a = actors[i]
-    if^a.kind = 2035 and^old < 0.15 and^a.death >= 0.15 { explode(i) }
-    if^a.kind = 2035 and^a.death > 0.65 { actors[i].alive := false^}
-    # Guards drop a clip or a shotgun once their corpse settles, as a separate
-    # actor so that the corpse stays visible.
-    if^old < 0.8 and^a.death >= 0.8 and^(a.kind = 3004 or^a.kind = 9) and^actors.len < 512 {
-        let^kind:i64^= if^a.kind = 9: 2001 el^: 2007;
-        actors.push(Actor{
-            pos = a.pos, z = a.z, kind = kind, picture = find_picture(thing_picture(kind).bytes, 0)
-        })
-    }
-}
-
-let^attack = p^i:i64^, dist:f32^{
-    let^a = actors[i]
-    let^melee = a.kind = 3002 or^a.kind = 58
-    if^melee and^dist >= a.radius + 38.0 { return^}
-    actors[i].attacking := 0.28
-    actors[i].timer := 1.0 + f32^(random_int(100)) * 0.012
-    if^a.kind = 3001 and^dist > 75.0 {
-        launch_fireball(a)
-    elif^melee or^dist < 75.0:
-        hurt_player(5 + random_int(12))
-    else^:
-        sound(0, a.pos)
-        if^random_int(100) < max(20, 85 - i64^(dist * 0.08)) {
-            hurt_player(if^a.kind = 9: 6 + random_int(10) el^: 3 + random_int(7);)
-        }
-    }
-}
-
-let^update_monster = p^i:i64^{
-    let^a = ref^actors[i]
-    a.pain := max(0.0, a.pain - STEP)
-    a.attacking := max(0.0, a.attacking - STEP)
-    a.timer -= STEP
-    let^delta = player.pos - a.pos
-    let^dist = delta.length()
-    let^sees = player.health > 0 and^dist < 1500.0
-        and^visible(a.pos, a.z + 36.0, player.pos, player.z + 32.0)
-    if^sees { a.awake := true^}
-    if^!a.awake or^player.health <= 0 or^a.pain > 0.0 { return^}
-    if^sees and^a.timer <= 0.0 and^(dist < 650.0 or^dist < a.radius + 38.0) { attack(i, dist) }
-    let^b = actors[i]
-    if^b.attacking > 0.0 or^dist < 1.0 { return^}
-    let^speed = if^b.kind = 3002 or^b.kind = 58: f32^(105.0) el^: 58.0;
-    let^moved = slide(b.pos, b.z, delta * (speed * STEP / dist), b.radius, i, true^)
-    actors[i].pos := moved
-    actors[i].z := max(b.z, sectors[sector_at(moved)].floor)
-}
-
-let^update_fireballs = p^{
-    for^i from^0 to^fireballs.len - 1 {
-        let^f = fireballs[i]
-        if^f.life <= 0.0 { continue^}
-        let^next = f.pos + f.velocity * STEP
-        let^next_z = f.z + f.vz * STEP
-        if^!visible(f.pos, f.z, next, next_z) {
-            fireballs[i].life := 0.0
-            continue^
-        }
-        fireballs[i] := Fireball{
-            pos = next,
-            z = next_z,
-            velocity = f.velocity,
-            vz = f.vz,
-            life = f.life - STEP
-        }
-        if^F2.distance(next, player.pos) < 22.0 and^next_z > player.z
-        and^next_z < player.z + PLAYER_HEIGHT {
-            hurt_player(10 + random_int(15))
-            fireballs[i].life := 0.0
-        }
-    }
-}
-
 let^update_actors = p^{
     for^i from^0 to^actors.len - 1 {
-        if^!actors[i].alive { continue^}
-        if^actors[i].death > 0.0 {
-            update_dying(i)
-            continue^
-        }
-        let^floor_z = sectors[sector_at(actors[i].pos)].floor
-        actors[i].z := max(floor_z, actors[i].z - 220.0 * STEP)
-        if^monster(actors[i].kind) { update_monster(i) }
+        actors[i].update()
     }
-    update_fireballs()
+    for^i from^0 to^fireballs.len - 1 { fireballs[i].update() }
 }
 
 # --- meshes: world units become (x, height, -y) ----------------------------------
@@ -1291,10 +1322,11 @@ struct^Vertex {
 
 let^vertex = f^p:F2, height:f32^, u:f32^, v:f32^, picture:i64^, light:f32^{
     let^r = pictures[picture]
-    return^Vertex{x = p.x, y = height, z = -p.y, u = u, v = v, rx = f32^(
-        r.x
-    ), ry = f32^(r.y), rw = f32^(r.w),
-        rh = f32^(r.h), light = light}
+    return^Vertex{
+        x = p.x, y = height, z = -p.y, u = u, v = v,
+        rx = f32^(r.x), ry = f32^(r.y), rw = f32^(r.w), rh = f32^(r.h),
+        light = light
+    }
 }
 
 let^lighting = f^sector:i64^{
@@ -1454,23 +1486,6 @@ let^frame_picture = f^prefix:string^, frame:i64^{
     return^id
 }
 
-let^actor_picture = f^a:Actor {
-    if^a.kind = 2035 {
-        if^a.death > 0.0 { return^frame_picture("BEXP", min(4, i64^(a.death * 8.0))) }
-        return^frame_picture("BAR1", i64^(game_time * 4.0) % 2)
-    }
-    if^!monster(a.kind) { return^a.picture }
-    let^prefix = monster_prefix(a.kind)
-    if^a.death > 0.0 {
-        let^first:i64^= if^a.kind = 3001 or^a.kind = 3002 or^a.kind = 58: 8 el^: 7;
-        let^last:i64^= if^a.kind = 3002 or^a.kind = 58: 5 el^: 4;
-        return^frame_picture(prefix, first + min(last, i64^(a.death * 7.0)))
-    }
-    if^a.pain > 0.0 { return^frame_picture(prefix, if^a.kind = 3004 or^a.kind = 9: 6 el^: 7;) }
-    if^a.attacking > 0.0 { return^frame_picture(prefix, 5) }
-    return^frame_picture(prefix, if^a.awake: i64^(game_time * 8.0) % 4 el^: 0;)
-}
-
 let^billboard = p^out:ref^Vertex[grow^], pos:F2, bottom:f32^, id:i64^, shade:f32^{
     let^p = pictures[id]
     let^right = F2{x = math.sin(player.yaw), y = -math.cos(player.yaw)}
@@ -1486,7 +1501,7 @@ let^sprite_mesh = p^out:ref^Vertex[grow^] {
         let^a = actors[i]
         if^!a.alive { continue^}
         let^shade = if^a.kind = 2035 and^a.death > 0.0: f32^(1.0) el^: lighting(sector_at(a.pos));
-        billboard(out, a.pos, a.z, actor_picture(a), shade)
+        billboard(out, a.pos, a.z, a.sprite(), shade)
     }
     for^i from^0 to^fireballs.len - 1 {
         let^f = fireballs[i]
@@ -1600,9 +1615,9 @@ let^automap = p^out:ref^HudVertex[grow^], screen:F2 {
             y = (player.pos.y - line.b.y) * 0.09
         }
         let^color = if^line.special = 26: Color{ r = 0.2, g = 0.45, b = 1.0, a = 1.0 }
-            el^line.special != 0: Color{ r = 1.0, g = 0.8, b = 0.25, a = 1.0 }
-            el^line.back < 0: Color{ r = 0.8, g = 0.23, b = 0.12, a = 1.0 }
-            el^: Color{ r = 0.3, g = 0.33, b = 0.3, a = 0.6 };
+        el^line.special != 0: Color{ r = 1.0, g = 0.8, b = 0.25, a = 1.0 }
+        el^line.back < 0: Color{ r = 0.8, g = 0.23, b = 0.12, a = 1.0 }
+        el^: Color{ r = 0.3, g = 0.33, b = 0.3, a = 0.6 };
         map_line(out, a, b, color)
     }
     let^forward = F2{x = math.cos(player.yaw), y = -math.sin(player.yaw)}
@@ -1960,7 +1975,7 @@ let^step_game = p^{
         if^gfx.key_down("Left") { player.yaw += dt * 2.2 }
         if^gfx.key_down("Right") { player.yaw -= dt * 2.2 }
         player.yaw := player.yaw - TAU * math.floor(player.yaw / TAU)
-        if^gfx.key_pressed("E") or^gfx.key_pressed("Space") { use() }
+        if^gfx.key_pressed("E") or^gfx.key_pressed("Space") { player.use() }
         var^direction = F2{}
         if^gfx.key_down("W") or^gfx.key_down("Up") { direction.y += 1.0 }
         if^gfx.key_down("S") or^gfx.key_down("Down") { direction.y -= 1.0 }
