@@ -151,7 +151,7 @@ let^find_picture = f^name:u8^[..], kind:i64^{
     return^-1
 }
 
-let^new_picture = p^name:u8^[..], kind:i64^, w:i64^, h:i64^{
+let^new_picture = p^name:read^u8^[..], kind:i64^, w:i64^, h:i64^{
     require(w > 0 and^h > 0 and^w <= ATLAS_W and^h <= 1024, "mini doom: bad picture dimensions")
     if^shelf[0] + w > ATLAS_W {
         shelf[0] := 0
@@ -201,7 +201,7 @@ let^paint_patch = p^pic:i64^, data:u8^[..], origin_x:i64^, origin_y:i64^{
     }
 }
 
-let^patch = p^name:u8^[..] {
+let^patch = p^name:read^u8^[..] {
     let^cached = find_picture(name, 0)
     if^cached >= 0 { return^cached }
     let^data = lump(name)
@@ -212,7 +212,7 @@ let^patch = p^name:u8^[..] {
     return^id
 }
 
-let^flat = p^name:u8^[..] -> i64^{
+let^flat = p^name:read^u8^[..] -> i64^{
     if^same(name, "F_SKY1".bytes) { return^-1 }
     let^cached = find_picture(name, 2)
     if^cached >= 0 { return^cached }
@@ -272,7 +272,9 @@ let^load_sprites = p^{
     let^last = find_lump("S_END".bytes)
     require(first >= 0 and^last > first, "mini doom: missing sprite markers")
     for^i from^first + 1 to^last - 1 {
-        if^lumps[i].size > 0 { patch(lumps[i].name[..]) }
+        if^lumps[i].size > 0 {
+            patch(lumps[i].name[..])
+        }
     }
     for^c:i64^from^0 to^127 {
         let^glyph = numbered("STCFN", c, 3)
@@ -336,7 +338,8 @@ let^sector_at = f^p:F2 {
 # so a fan of seg ends leaves holes. Clip a bounding polygon down the BSP and
 # by the leaf's edges to recover each convex cell. Appends into the caller's
 # scratch; earlier views of it stay valid as it grows.
-let^clip_polygon = p^poly:F2[..], origin:F2, delta:F2, out:ref^F2[grow^] {
+# A read-only input may share storage with the output; growth keeps existing views valid.
+let^clip_polygon = p^poly:read^F2[..], origin:F2, delta:F2, out:ref^F2[grow^] {
     if^poly.len = 0 { return^}
     var^previous = poly[poly.len - 1]
     var^d0 = delta × (previous - origin)
@@ -352,7 +355,7 @@ let^clip_polygon = p^poly:F2[..], origin:F2, delta:F2, out:ref^F2[grow^] {
     }
 }
 
-let^build_floors = p^child:i64^, poly:F2[..], depth:i64^, scratch:ref^F2[grow^] {
+let^build_floors = p^child:i64^, poly:read^F2[..], depth:i64^, scratch:ref^F2[grow^] {
     require(depth <= nodes.len, "mini doom: cyclic BSP tree")
     if^poly.len < 3 { return^}
     let^mark = scratch.len
@@ -1535,7 +1538,7 @@ let^text_width = f^words:u8^[..] {
     return^width
 }
 
-let^text = p^out:ref^HudVertex[grow^], x:f32^, y:f32^, words:u8^[..], color:Color {
+let^text = p^out:ref^HudVertex[grow^], x:f32^, y:f32^, words:read^u8^[..], color:Color {
     var^cursor = x
     for^i from^0 to^words.len - 1 {
         let^c = i64^(words[i])
@@ -1560,7 +1563,7 @@ let^text = p^out:ref^HudVertex[grow^], x:f32^, y:f32^, words:u8^[..], color:Colo
     }
 }
 
-let^centered = p^out:ref^HudVertex[grow^], width:f32^, y:f32^, words:u8^[..] {
+let^centered = p^out:ref^HudVertex[grow^], width:f32^, y:f32^, words:read^u8^[..] {
     text(out, (width - text_width(words)) * 0.5, y, words, WHITE)
 }
 

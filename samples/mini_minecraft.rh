@@ -1231,7 +1231,7 @@ let^quad = p^out:ref^HudVertex[grow^], x:f32^, y:f32^, w:f32^, h:f32^, color:u8^
 let^rect = p^out:ref^HudVertex[grow^], x:f32^, y:f32^, w:f32^, h:f32^, color:u8^[4] {
     quad(out, x, y, w, h, color, WHITE_TILE)
 }
-let^text = p^out:ref^HudVertex[grow^], x:f32^, y:f32^, words:u8^[..], color:u8^[4], scale:f32^{
+let^text = p^out:ref^HudVertex[grow^], x:f32^, y:f32^, words:read^u8^[..], color:u8^[4], scale:f32^{
     var^at = x
     for^i from^0 to^words.len - 1 {
         let^rows = glyph(words[i])
@@ -1247,7 +1247,7 @@ let^text = p^out:ref^HudVertex[grow^], x:f32^, y:f32^, words:u8^[..], color:u8^[
         at += 6.0 * scale
     }
 }
-let^centred = p^out:ref^HudVertex[grow^], middle:f32^, y:f32^, words:u8^[..], color:u8^[4] {
+let^centred = p^out:ref^HudVertex[grow^], middle:f32^, y:f32^, words:read^u8^[..], color:u8^[4] {
     text(out, middle - f32^(words.len) * 6.0, y, words, color, 2.0)
 }
 let^next_goal = f^-> string^{
