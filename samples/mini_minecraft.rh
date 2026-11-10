@@ -2007,11 +2007,6 @@ repeat^while^gfx.frame() {
     if^drawn = frames { break^}
 }
 if^frames > 0 {
-    print^(
-        "drew ",
-        drawn,
-        " frames; saved mini_minecraft.png: ",
-        gfx.screenshot("mini_minecraft.png")
-    )
+    print^$"drew {drawn} frames; saved mini_minecraft.png: {gfx.screenshot("mini_minecraft.png")}"
 }
 gfx.close()
