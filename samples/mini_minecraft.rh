@@ -482,9 +482,13 @@ let^edit = p^c:Cell, b:BlockType {
     # Corner shading samples diagonal neighbours too. Rebuild all chunks
     # touched by a one-cell border; most edits still touch only one chunk.
     for^dz:i64^from^-1 to^1 {
-        for^dx:i64^from^-1 to^1 { dirty_at(c.x + dx, c.z + dz) }
+        for^dx:i64^from^-1 to^1 {
+            dirty_at(c.x + dx, c.z + dz)
+        }
     }
-    if^old = BlockType.LAMP or^b = BlockType.LAMP { find_lamps() }
+    if^old = BlockType.LAMP or^b = BlockType.LAMP {
+        find_lamps()
+    }
 }
 
 # --- deterministic terrain ---------------------------------------------------
