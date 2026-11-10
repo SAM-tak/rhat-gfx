@@ -1255,7 +1255,8 @@ let^next_goal = f^-> string^{
     if^game.tool = 0 { return^"C - MAKE PLANKS AND A WOODEN PICK" }
     if^game.tool = 1 { return^"MINE THREE STONE - C TO UPGRADE" }
     if^game.bag[6] = 0 and^lamp_count = 0 { return^"FIND COAL - C TO CRAFT LAMPS" }
-    return^"BUILD A CABIN - LIGHT YOUR CAVE"
+    if^lamp_count = 0 { return^"BUILD A CABIN - LIGHT YOUR CAVE" }
+    return^"COMPLETE TASK"
 }
 let^block_name = f^b:BlockType -> string^{
     if^b = BlockType.BEDROCK { return^"BEDROCK - UNBREAKABLE" }
