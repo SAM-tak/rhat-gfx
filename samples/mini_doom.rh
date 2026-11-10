@@ -511,10 +511,8 @@ let^load_tree = p^{
 
 # --- things, player and game state ---------------------------------------------------
 
-let^STEP:f32^= 0.016666667
-let^TAU:f32^= 6.2831853
-let^PLAYER_RADIUS:f32^= 16.0
-let^PLAYER_HEIGHT:f32^= 56.0
+let^STEP = 0.016666667f32
+let^TAU = 6.2831853f32
 
 def^Player {
     self^{
@@ -523,6 +521,9 @@ def^Player {
         weapon:i64^= 2, shotgun:bool^= false^, chaingun:bool^= false^, blue_key:bool^= false^,
         cooldown:f32^= 0.0, flash:f32^= 0.0, hurt:f32^= 0.0, bonus:f32^= 0.0, bob:f32^= 0.0
     }
+
+    let^RADIUS = 16.0f32
+    let^HEIGHT = 56.0f32
 
     take_damage = p^self^, damage:i64^{
         if^self^.health <= 0 or^won { return^}
@@ -548,7 +549,7 @@ def^Player {
                 self^.pos,
                 self^.z,
                 movement * (1.0 / f32^(steps)),
-                PLAYER_RADIUS,
+                def^.RADIUS,
                 -1,
                 false^
             )
@@ -990,7 +991,7 @@ let^can_stand = f^pos:F2, z:f32^, radius:f32^, height:f32^, ignore:i64^, enemy:b
         ) < height and^F2.distance(pos, a.pos) < radius + a.radius { return^false^}
     }
     if^enemy and^player.health > 0 and^math.abs(player.z - z) < height
-        and^F2.distance(pos, player.pos) < radius + PLAYER_RADIUS {
+        and^F2.distance(pos, player.pos) < radius + Player.RADIUS {
         return^false^
     }
     return^true^
@@ -998,12 +999,12 @@ let^can_stand = f^pos:F2, z:f32^, radius:f32^, height:f32^, ignore:i64^, enemy:b
 
 let^slide = f^pos:F2, z:f32^, delta:F2, radius:f32^, ignore:i64^, enemy:bool^{
     let^whole = pos + delta
-    if^can_stand(whole, z, radius, PLAYER_HEIGHT, ignore, enemy) { return^whole }
+    if^can_stand(whole, z, radius, Player.HEIGHT, ignore, enemy) { return^whole }
     # The axis fallback is small and forgiving; substeps prevent tunneling.
     var^next = F2{x = pos.x + delta.x, y = pos.y}
-    if^!can_stand(next, z, radius, PLAYER_HEIGHT, ignore, enemy) { next := pos }
+    if^!can_stand(next, z, radius, Player.HEIGHT, ignore, enemy) { next := pos }
     let^y = F2{x = next.x, y = pos.y + delta.y}
-    if^can_stand(y, z, radius, PLAYER_HEIGHT, ignore, enemy) { next := y }
+    if^can_stand(y, z, radius, Player.HEIGHT, ignore, enemy) { next := y }
     return^next
 }
 
@@ -1071,10 +1072,9 @@ let^activate_line = p^index:i64^, crossing:bool^{
 }
 
 let^occupied = f^index:i64^, ceiling:f32^{
-    if^sector_at(player.pos) = index and^player.z + PLAYER_HEIGHT > ceiling { return^true^}
-    for^i from^0 to^actors.len - 1 {
-        let^a = actors[i]
-        if^a.alive and^a.solid and^sector_at(a.pos) = index and^a.z + PLAYER_HEIGHT > ceiling {
+    if^sector_at(player.pos) = index and^player.z + Player.HEIGHT > ceiling { return^true^}
+    for^a in^actors {
+        if^a.alive and^a.solid and^sector_at(a.pos) = index and^a.z + Player.HEIGHT > ceiling {
             return^true^
         }
     }
@@ -1197,7 +1197,7 @@ def^Fireball {
         self^.z := next_z
         self^.life -= STEP
         if^F2.distance(next, player.pos) < 22.0 and^next_z > player.z
-            and^next_z < player.z + PLAYER_HEIGHT {
+            and^next_z < player.z + Player.HEIGHT {
             player.take_damage(10 + random_int(15))
             self^.life := 0.0
         }
