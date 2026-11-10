@@ -1416,8 +1416,7 @@ let^world_mesh = p^out:ref^Vertex[grow^] {
             )
         }
     }
-    for^l from^0 to^lines.len - 1 {
-        let^line = lines[l]
+    for^ref^line in^lines {
         for^face from^0 to^1 {
             let^side_id = if^face = 0: line.front el^: line.back;
             let^other_id = if^face = 0: line.back el^: line.front;
@@ -1688,7 +1687,9 @@ let^draw_status = p^out:ref^HudVertex[grow^], screen:F2, bar_y:f32^{
             WHITE
         )
     }
-    if^message_time > 0.0 { centered(out, screen.x, 7.0, message[..]) }
+    if^message_time > 0.0 {
+        centered(out, screen.x, 7.0, message[..])
+    }
 }
 
 let^draw_overlays = p^out:ref^HudVertex[grow^], screen:F2, bar_y:f32^, paused:bool^, help:bool^{
@@ -1785,76 +1786,76 @@ let^look_along = f^ex:f32^, ey:f32^, ez:f32^, dx:f32^, dz:f32^-> M4 {
 # --- GPU programs --------------------------------------------------------------------
 
 let^world_vertex = "
-    layout(location = 0) in vec3 a_pos;
-    layout(location = 1) in vec2 a_uv;
-    layout(location = 2) in vec4 a_rectangle;
-    layout(location = 3) in float a_light;
-    layout(set = 1, binding = 0) uniform Camera { mat4 view_proj; vec4 eye; };
-    layout(location = 0) out vec2 uv;
-    layout(location = 1) flat out vec4 rectangle;
-    layout(location = 2) flat out float light;
-    layout(location = 3) out vec3 direction;
-    void main() {
-        uv = a_uv;
-        rectangle = a_rectangle;
-        light = a_light;
-        direction = a_pos - eye.xyz;
-        gl_Position = view_proj * vec4(a_pos, 1.0);
-    }
-    "
+layout(location = 0) in vec3 a_pos;
+layout(location = 1) in vec2 a_uv;
+layout(location = 2) in vec4 a_rectangle;
+layout(location = 3) in float a_light;
+layout(set = 1, binding = 0) uniform Camera { mat4 view_proj; vec4 eye; };
+layout(location = 0) out vec2 uv;
+layout(location = 1) flat out vec4 rectangle;
+layout(location = 2) flat out float light;
+layout(location = 3) out vec3 direction;
+void main() {
+    uv = a_uv;
+    rectangle = a_rectangle;
+    light = a_light;
+    direction = a_pos - eye.xyz;
+    gl_Position = view_proj * vec4(a_pos, 1.0);
+}
+"
 let^world_fragment = "
-    layout(location = 0) in vec2 uv;
-    layout(location = 1) flat in vec4 rectangle;
-    layout(location = 2) flat in float light;
-    layout(location = 3) in vec3 direction;
-    layout(set = 2, binding = 0) uniform sampler2D atlas;
-    layout(location = 0) out vec4 result;
-    void main() {
-        vec2 local = fract(uv);
-        float shade = light;
-        if (light < 0.0) {
-            float angle = atan(-direction.z, direction.x);
-            local.x = fract(-angle * 2.0 / 3.14159265);
-            local.y = clamp(0.55 - atan(direction.y, length(direction.xz)) * 0.8, 0.0, 0.99);
-            shade = 1.0;
-        } else {
-            shade *= max(0.38, 1.0 - length(direction) / 1800.0);
-            shade = floor(shade * 24.0) / 24.0;
-        }
-        vec2 texel = rectangle.xy + floor(local * rectangle.zw) + 0.5;
-        vec4 sample_color = texture(atlas, texel / vec2(2048.0, 4096.0));
-        if (sample_color.a < 0.5) discard;
-        result = vec4(sample_color.rgb * shade, 1.0);
+layout(location = 0) in vec2 uv;
+layout(location = 1) flat in vec4 rectangle;
+layout(location = 2) flat in float light;
+layout(location = 3) in vec3 direction;
+layout(set = 2, binding = 0) uniform sampler2D atlas;
+layout(location = 0) out vec4 result;
+void main() {
+    vec2 local = fract(uv);
+    float shade = light;
+    if (light < 0.0) {
+        float angle = atan(-direction.z, direction.x);
+        local.x = fract(-angle * 2.0 / 3.14159265);
+        local.y = clamp(0.55 - atan(direction.y, length(direction.xz)) * 0.8, 0.0, 0.99);
+        shade = 1.0;
+    } else {
+        shade *= max(0.38, 1.0 - length(direction) / 1800.0);
+        shade = floor(shade * 24.0) / 24.0;
     }
-    "
+    vec2 texel = rectangle.xy + floor(local * rectangle.zw) + 0.5;
+    vec4 sample_color = texture(atlas, texel / vec2(2048.0, 4096.0));
+    if (sample_color.a < 0.5) discard;
+    result = vec4(sample_color.rgb * shade, 1.0);
+}
+"
 
 let^hud_vertex = "
-    layout(location = 0) in vec2 a_pos;
-    layout(location = 1) in vec2 a_uv;
-    layout(location = 2) in vec4 a_rectangle;
-    layout(location = 3) in vec4 a_color;
-    layout(set = 1, binding = 0) uniform Canvas { vec4 screen; };
-    layout(location = 0) out vec2 uv;
-    layout(location = 1) flat out vec4 rectangle;
-    layout(location = 2) out vec4 color;
-    void main() {
-        uv = a_uv;
-        rectangle = a_rectangle;
-        color = a_color;
-        gl_Position = vec4(a_pos.x / screen.x * 2.0 - 1.0, 1.0 - a_pos.y / screen.y * 2.0, 0.0, 1.0);
-    }
-    "
+layout(location = 0) in vec2 a_pos;
+layout(location = 1) in vec2 a_uv;
+layout(location = 2) in vec4 a_rectangle;
+layout(location = 3) in vec4 a_color;
+layout(set = 1, binding = 0) uniform Canvas { vec4 screen; };
+layout(location = 0) out vec2 uv;
+layout(location = 1) flat out vec4 rectangle;
+layout(location = 2) out vec4 color;
+void main() {
+    uv = a_uv;
+    rectangle = a_rectangle;
+    color = a_color;
+    gl_Position = vec4(a_pos.x / screen.x * 2.0 - 1.0, 1.0 - a_pos.y / screen.y * 2.0, 0.0, 1.0);
+}
+"
 let^hud_fragment = "
-    layout(location = 0) in vec2 uv;
-    layout(location = 1) flat in vec4 rectangle;
-    layout(location = 2) in vec4 color;
-    layout(set = 2, binding = 0) uniform sampler2D atlas;
-    layout(location = 0) out vec4 result;
-    void main() {
-        vec2 texel = rectangle.xy + clamp(floor(uv * rectangle.zw), vec2(0.0), rectangle.zw - 1.0) + 0.5;
-        result = texture(atlas, texel / vec2(2048.0, 4096.0)) * color;
-    }
-    "
+layout(location = 0) in vec2 uv;
+layout(location = 1) flat in vec4 rectangle;
+layout(location = 2) in vec4 color;
+layout(set = 2, binding = 0) uniform sampler2D atlas;
+layout(location = 0) out vec4 result;
+void main() {
+    vec2 texel = rectangle.xy + clamp(floor(uv * rectangle.zw), vec2(0.0), rectangle.zw - 1.0) + 0.5;
+    result = texture(atlas, texel / vec2(2048.0, 4096.0)) * color;
+}
+"
 
 # --- entry point -----------------------------------------------------------------------
 
