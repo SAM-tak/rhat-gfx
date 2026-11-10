@@ -3,7 +3,7 @@
 # Start empty-handed, gather wood, make a pick, mine stone and coal, then
 # build a cabin and light it. Ported from Goose's samples/30_mini_minecraft.goose.
 # This is a programming sample, not an engine: a finite grid, a few plain
-# structs, and one update/draw loop.
+# objects, and one update/draw loop.
 #
 #   mini_minecraft [--seed N] [--frames N] [--test]
 #
@@ -95,24 +95,265 @@ def^Cell {
     }
 }
 
-struct^Player {
-    feet:F3 = { x = 0.0, y = 0.0, z = 0.0 },
-    velocity:f32^= 0.0,
-    yaw:f32^= 0.0,
-    pitch:f32^= 0.0,
-    grounded:bool^= false^
+def^Player {
+    self^{
+        feet:F3 = { x = 0.0, y = 0.0, z = 0.0 },
+        velocity:f32^= 0.0,
+        yaw:f32^= 0.0,
+        pitch:f32^= 0.0,
+        grounded:bool^= false^
+    }
+
+    let^RADIUS:f32^= 0.29
+    let^BODY_HEIGHT:f32^= 1.8
+    let^EYE_HEIGHT:f32^= 1.62
+
+    eye = f^self^-> F3 { self^.feet + F3{ x = 0.0, y = Self^.EYE_HEIGHT, z = 0.0 } }
+
+    forward = f^self^-> F3 {
+        return^{
+            x = math.sin(self^.yaw) * math.cos(self^.pitch),
+            y = math.sin(self^.pitch),
+            z = -math.cos(self^.yaw) * math.cos(self^.pitch)
+        }
+    }
+
+    move_axis = p^self^, delta:F3, keep_support:bool^-> bool^{
+        let^start = self^.feet
+        if^!Self^.blocked(start + delta) and^(!keep_support or^Self^.supported(start + delta)) {
+            self^.feet := start + delta
+            return^false^
+        }
+        # Find the contact point. The fixed timestep bounds each move to less
+        # than a block, and bisection leaves the player just outside the wall.
+        var^lo:f32^= 0.0
+        var^hi:f32^= 1.0
+        for^1 to^10 {
+            let^mid = (lo + hi) * 0.5
+            let^candidate = start + delta * mid
+            if^Self^.blocked(candidate) or^(keep_support and^!Self^.supported(candidate)) {
+                hi := mid
+            else^:
+                lo := mid
+            }
+        }
+        self^.feet := start + delta * lo
+        return^true^
+    }
+    overload^move_axis = p^self^, delta:F3 -> bool^{ return^self^.move_axis(delta, false^) }
+
+    walk = p^self^, direction:F2, jump:bool^, run:bool^, sneak:bool^{
+        let^swimming = Self^.wet(self^.feet)
+        let^speed:f32^= if^swimming: 2.6 el^sneak: 1.5 el^run: 6.0 el^: 4.2;
+        let^right = F3{x = math.cos(self^.yaw), y = 0.0, z = math.sin(self^.yaw)}
+        let^ahead = F3{x = math.sin(self^.yaw), y = 0.0, z = -math.cos(self^.yaw)}
+        var^input = direction
+        if^input dot^input > 1.0 { input := input.normalized() }
+        let^delta = (right * input.x + ahead * input.y) * (speed * STEP)
+        let^keep_support = sneak and^self^.grounded and^!jump and^!swimming
+        self^.move_axis(F3{x = delta.x, y = 0.0, z = 0.0}, keep_support)
+        self^.move_axis(F3{x = 0.0, y = 0.0, z = delta.z}, keep_support)
+        if^swimming {
+            self^.velocity := max(self^.velocity - 4.0 * STEP, -2.0)
+            if^jump {
+                self^.velocity := 4.0
+                # A kick near the surface clears a one-block shore. Testing
+                # the feet for water keeps this active until we actually exit.
+                if^block_at(
+                    floor_cell(self^.feet + F3{x = 0.0, y = 1.0, z = 0.0})
+                ) != BlockType.WATER {
+                    self^.velocity := 8.0
+                }
+            }
+        else^:
+            if^jump and^self^.grounded { self^.velocity := 8.0 }
+            self^.velocity := max(self^.velocity - 23.0 * STEP, -30.0)
+        }
+        let^hit = self^.move_axis(F3{x = 0.0, y = self^.velocity * STEP, z = 0.0})
+        self^.grounded := hit and^self^.velocity < 0.0
+        if^hit { self^.velocity := 0.0 }
+    }
+    overload^walk = p^self^, direction:F2, jump:bool^,
+        run:bool^{ self^.walk(direction, jump, run, false^) }
+
+    overlaps = f^feet:F3, c:Cell -> bool^{
+        let^p = position(c)
+        return^feet.x + Self^.RADIUS > p.x and^feet.x - Self^.RADIUS < p.x + 1.0 and^
+            feet.y + Self^.BODY_HEIGHT > p.y and^feet.y < p.y + 1.0 and^
+            feet.z + Self^.RADIUS > p.z and^feet.z - Self^.RADIUS < p.z + 1.0
+    }
+
+    blocked = f^feet:F3 -> bool^{
+        # The finite map's edges are walls, while its sky is open.
+        if^feet.x < Self^.RADIUS or^feet.z < Self^.RADIUS or^feet.x > f32^(WIDTH) - Self^.RADIUS or^
+            feet.z > f32^(DEPTH) - Self^.RADIUS or^feet.y < 1.0 {
+                return^true^
+            }
+        let^lo = floor_cell(feet - F3{x = Self^.RADIUS, y = 0.0, z = Self^.RADIUS})
+        let^hi = floor_cell(
+            feet + F3{x = Self^.RADIUS, y = Self^.BODY_HEIGHT - 0.001, z = Self^.RADIUS}
+        )
+        for^y from^lo.y to^hi.y {
+            for^z from^lo.z to^hi.z {
+                for^x from^lo.x to^hi.x {
+                    if^solid(block_at(cell(x, y, z))) { return^true^}
+                }
+            }
+        }
+        return^false^
+    }
+
+    wet = f^feet:F3 -> bool^{
+        block_at(floor_cell(feet + F3{x = 0.0, y = 0.05, z = 0.0})) = BlockType.WATER
+    }
+
+    supported = f^feet:F3 -> bool^{
+        # Leave a little overlap with the floor when sneaking onto a ledge.
+        # Water does not count as support, and only the layer below the feet
+        # matters: a nearby wall must not let us walk off a roof.
+        let^margin = Self^.RADIUS - 0.02
+        let^lo = floor_cell(feet - F3{x = margin, y = 0.05, z = margin})
+        let^hi = floor_cell(feet + F3{x = margin, y = -0.05, z = margin})
+        for^z from^lo.z to^hi.z {
+            for^x from^lo.x to^hi.x {
+                if^solid(block_at(cell(x, lo.y, z))) { return^true^}
+            }
+        }
+        return^false^
+    }
 }
 
-# This small record is the save header. The large block grid stays in
-# global storage: passing or copying Game never copies the world.
+# Game owns the player and inventory operations. Its fields form the save
+# header; the large block grid stays in global storage, so copying Game
+# never copies the world.
 # Transient input and GPU handles are kept outside the saved state.
-struct^Game {
-    version:i64^= 0,
-    seed:u32^= 0,
-    player:Player = {},
-    bag:i64^[8],
-    tool:i64^= 0,              # 0: hands, 1: wooden pick, 2: stone pick
-    selected:i64^= 0
+def^Game {
+    self^{
+        version:i64^= 0,
+        seed:u32^= 0,
+        player:Player = {},
+        bag:i64^[8],
+        tool:i64^= 0,              # 0: hands, 1: wooden pick, 2: stone pick
+        selected:i64^= 0
+    }
+
+    pick_material = p^self^, hit:Hit {
+        if^!hit.found { return^}
+        let^slot = drop_slot(block_at(hit.at))
+        if^slot >= 0 and^SLOT_BLOCK[slot] != BlockType.AIR {
+            self^.selected := slot
+            if^self^.bag[slot] = 0 { say("MINE SOME OF THIS MATERIAL FIRST") }
+        }
+    }
+
+    mining_seconds = f^self^, b:BlockType -> f32^{
+        if^b = BlockType.BEDROCK { return^0.0 }
+        if^b = BlockType.STONE or^b = BlockType.COBBLE or^b = BlockType.COAL {
+            if^self^.tool = 0 { return^0.0 }
+            return^if^self^.tool = 1: 1.15 el^: 0.45;
+        }
+        if^b = BlockType.WOOD { return^1.0 }
+        if^b = BlockType.PLANKS { return^0.65 }
+        if^b = BlockType.LEAVES or^b = BlockType.LAMP { return^0.18 }
+        return^0.35
+    }
+
+    mine = p^self^, c:Cell -> bool^{
+        let^b = block_at(c)
+        let^slot = drop_slot(b)
+        if^slot < 0 or^self^.mining_seconds(b) <= 0.0 { return^false^}
+        if^self^.bag[slot] >= 999 {
+            say("THAT STACK IS FULL (999)")
+            return^false^
+        }
+        self^.bag[slot] += 1
+        edit(c, BlockType.AIR)
+        scatter(c, b)
+        return^true^
+    }
+
+    place = p^self^, hit:Hit -> bool^{
+        if^!hit.found or^hit.at = hit.before or^!inside(hit.before) { return^false^}
+        let^slot = self^.selected
+        let^b = SLOT_BLOCK[slot]
+        if^b = BlockType.AIR {
+            say("COAL IS FOR CRAFTING LAMPS")
+            return^false^
+        }
+        if^self^.bag[slot] = 0 {
+            say("MINE OR CRAFT SOME FIRST")
+            return^false^
+        }
+        if^solid(block_at(hit.before)) or^Player.overlaps(
+            self^.player.feet,
+            hit.before
+        ) { return^false^}
+        if^b = BlockType.LAMP and^lamp_count = MAX_LAMPS {
+            say("SIXTEEN LIGHTS MAX - PICK ONE UP FIRST")
+            return^false^
+        }
+        edit(hit.before, b)
+        self^.bag[slot] -= 1
+        return^true^
+    }
+
+    can_craft = f^self^, recipe:i64^-> bool^{
+        if^recipe = 0 { return^self^.bag[2] >= 1 and^self^.bag[3] <= 995 }
+        if^recipe = 1 { return^self^.tool = 0 and^self^.bag[3] >= 5 }
+        if^recipe = 2 { return^self^.tool = 1 and^self^.bag[1] >= 3 and^self^.bag[3] >= 2 }
+        if^recipe = 3 { return^self^.bag[7] >= 1 and^self^.bag[3] >= 1 and^self^.bag[6] <= 995 }
+        return^false^
+    }
+
+    craft = p^self^, recipe:i64^-> bool^{
+        if^!self^.can_craft(recipe) {
+            say("NOT ENOUGH MATERIALS, OR UPGRADE ALREADY OWNED")
+            return^false^
+        }
+        if^recipe = 0 {
+            self^.bag[2] -= 1
+            self^.bag[3] += 4
+            say("MADE FOUR PLANKS")
+            return^true^
+        }
+        if^recipe = 1 {
+            self^.bag[3] -= 5
+            self^.tool := 1
+            say("WOODEN PICK - NOW YOU CAN MINE STONE")
+            return^true^
+        }
+        if^recipe = 2 {
+            self^.bag[1] -= 3
+            self^.bag[3] -= 2
+            self^.tool := 2
+            say("STONE PICK - FASTER MINING")
+            return^true^
+        }
+        if^recipe = 3 {
+            self^.bag[7] -= 1
+            self^.bag[3] -= 1
+            self^.bag[6] += 4
+            say("MADE FOUR LAMPS - SELECT SLOT 7 TO PLACE")
+            return^true^
+        }
+        return^false^
+    }
+
+    craft_batches = p^self^, recipe:i64^, all:bool^-> i64^{
+        if^!self^.craft(recipe) { return^0 }
+        var^batches:i64^= 1
+        # can_craft checks both ingredients and stack capacity. Tools become
+        # unavailable once owned, so even "craft all" makes only one upgrade.
+        repeat^while^all and^self^.can_craft(recipe) {
+            self^.craft(recipe)
+            batches += 1
+        }
+        if^batches > 1 {
+            let^made = $"MADE {batches * 4}{(if^recipe = 0: " PLANKS" el^: " LAMPS";)}"
+            say(made.text())
+        }
+        return^batches
+    }
 }
 var^game = Game{}
 var^blocks:u8^[] = { BlockType.AIR repeat^VOLUME }
@@ -128,7 +369,7 @@ let^daylight = f^-> f32^{ clamp(sun_direction().y * 3.0 + 0.35, 0.0, 1.0) }
 let^horizon = f^-> F3 {
     let^day = daylight()
     let^dusk = 1.0 - abs(day * 2.0 - 1.0)
-    return^F3{ x = 0.045, y = 0.065, z = 0.12 } * (1.0 - day) + F3{ x = 0.70, y = 0.82, z = 0.87 } * day +
+    return^F3{x = 0.045, y = 0.065, z = 0.12 } * (1.0 - day) + F3{ x = 0.70, y = 0.82, z = 0.87 } * day +
         F3{ x = 0.30, y = 0.04, z = 0.0 } * dusk
 }
 let^advance_time = p^dt:f32^{ day_time := (day_time + dt) % DAY_LENGTH }
@@ -148,11 +389,20 @@ var^message_time:f32^= 0.0
 # Cosmetic fragments are a fixed pool: breaking another block reuses the
 # oldest slots. They never affect collisions, inventory, or saved games.
 let^MAX_DEBRIS:i64^= 48
-struct^Debris {
-    pos:F3 = { x = 0.0, y = 0.0, z = 0.0 },
-    velocity:F3 = { x = 0.0, y = 0.0, z = 0.0 },
-    life:f32^= 0.0,
-    tile:i64^= 0
+def^Debris {
+    self^{
+        pos:F3 = { x = 0.0, y = 0.0, z = 0.0 },
+        velocity:F3 = { x = 0.0, y = 0.0, z = 0.0 },
+        life:f32^= 0.0,
+        tile:i64^= 0
+    }
+
+    update = p^self^, dt:f32^{
+        if^self^.life <= 0.0 { return^}
+        self^.life -= dt
+        self^.velocity.y -= 10.0 * dt
+        self^.pos := self^.pos + self^.velocity * dt
+    }
 }
 var^debris = { Debris{} repeat^MAX_DEBRIS }
 var^next_debris:i64^= 0
@@ -175,12 +425,7 @@ let^scatter = p^c:Cell, b:BlockType {
     }
 }
 let^animate_debris = p^dt:f32^{
-    for^i from^0 to^MAX_DEBRIS - 1 {
-        if^debris[i].life <= 0.0 { continue^}
-        debris[i].life -= dt
-        debris[i].velocity.y -= 10.0 * dt
-        debris[i].pos := debris[i].pos + debris[i].velocity * dt
-    }
+    for^ref^fragment in^debris { fragment.update(dt) }
 }
 
 let^say = p^text:string^{
@@ -199,26 +444,27 @@ let^index = f^c:Cell -> i64^{ (c.y * DEPTH + c.z) * WIDTH + c.x }
 
 let^block_at = f^c:Cell -> BlockType {
     if^!inside(c) { return^BlockType.AIR }
-    return^BlockType(blocks[index(c)]) catch^ BlockType.AIR
+    return^BlockType(blocks[index(c)]) catch^BlockType.AIR
 }
-let^solid = f^b:BlockType-> bool^{ b != BlockType.AIR and^b != BlockType.WATER }
+let^solid = f^b:BlockType -> bool^{ b != BlockType.AIR and^b != BlockType.WATER }
 let^put = p^c:Cell, b:BlockType {
     if^inside(c) { blocks[index(c)] := b }
 }
 let^dirty_all = p^{
-    for^i from^0 to^meshes.len - 1 { meshes[i].dirty := true^}
+    for^i in^0 .. meshes.len { meshes[i].dirty := true^}
 }
 let^dirty_at = p^x:i64^, z:i64^{
     if^x >= 0 and^x < WIDTH and^z >= 0 and^z < DEPTH {
         meshes[(z / CHUNK) * CHUNKS_X + x / CHUNK].dirty := true^
     }
 }
+
 let^find_lamps = p^{
-    for^i from^0 to^MAX_LAMPS - 1 { lamps[i] := F4{} }
+    for^i in^0 .. MAX_LAMPS { lamps[i] := F4{} }
     lamp_count := 0
-    for^y from^0 to^HEIGHT - 1 {
-        for^z from^0 to^DEPTH - 1 {
-            for^x from^0 to^WIDTH - 1 {
+    for^y in^0 .. HEIGHT {
+        for^z in^0 .. DEPTH {
+            for^x in^0 .. WIDTH {
                 if^block_at(cell(x, y, z)) = BlockType.LAMP and^lamp_count < MAX_LAMPS {
                     lamps[lamp_count] := F4{
                         x = f32^(x) + 0.5, y = f32^(y) + 0.5, z = f32^(z) + 0.5, w = 1.0
@@ -229,6 +475,7 @@ let^find_lamps = p^{
         }
     }
 }
+
 let^edit = p^c:Cell, b:BlockType {
     let^old = block_at(c)
     put(c, b)
@@ -250,9 +497,11 @@ let^hash = f^x:i64^, y:i64^, z:i64^, seed:u32^-> u32^{
     h := (h bitxor^(h bitshift^-13)) * 1274126177
     return^h bitxor^(h bitshift^-16)
 }
+
 let^noise_value = f^x:i64^, z:i64^-> f32^{
     f32^(hash(x, 0, z, game.seed) bitand^65535) / 65535.0
 }
+
 let^noise = f^x:f32^, z:f32^-> f32^{
     let^ix = floor(x)
     let^iz = floor(z)
@@ -264,6 +513,7 @@ let^noise = f^x:f32^, z:f32^-> f32^{
     let^b = noise_value(ix, iz + 1) * (1.0 - u) + noise_value(ix + 1, iz + 1) * u
     return^a * (1.0 - v) + b * v
 }
+
 let^ground_height = f^x:i64^, z:i64^-> i64^{
     let^fx = f32^(x)
     let^fz = f32^(z)
@@ -277,11 +527,13 @@ let^ground_height = f^x:i64^, z:i64^-> i64^{
     let^clearing = clamp((distance - 8.0) / 5.0, 0.0, 1.0)
     return^floor(19.0 * (1.0 - clearing) + terrain * clearing)
 }
+
 let^highest = f^x:i64^, z:i64^-> i64^{
     var^y = HEIGHT - 1
     repeat^while^y > 0 and^!solid(block_at(cell(x, y, z))) { y -= 1 }
     return^y
 }
+
 let^tree = p^x:i64^, z:i64^{
     let^base = ground_height(x, z) + 1
     if^block_at(cell(x, base - 1, z)) != BlockType.GRASS { return^}
@@ -296,14 +548,15 @@ let^tree = p^x:i64^, z:i64^{
             }
         }
     }
-    for^y from^base to^base + height - 1 { put(cell(x, y, z), BlockType.WOOD) }
+    for^y in^base .. base + height { put(cell(x, y, z), BlockType.WOOD) }
 }
+
 let^respawn = p^{
     # Search dry ground from the centre, without placing the player in a
     # trunk, a leaf canopy, a saved building, or the lake.
-    for^radius from^0 to^WIDTH / 2 - 1 {
-        for^z from^max(1, 40 - radius) to^min(DEPTH - 1, 41 + radius) - 1 {
-            for^x from^max(1, 40 - radius) to^min(WIDTH - 1, 41 + radius) - 1 {
+    for^radius in^0 .. WIDTH / 2 {
+        for^z in^max(1, 40 - radius) .. min(DEPTH - 1, 41 + radius) {
+            for^x in^max(1, 40 - radius) .. min(WIDTH - 1, 41 + radius) {
                 let^y = highest(x, z)
                 let^b = block_at(cell(x, y, z))
                 if^(b = BlockType.GRASS or^b = BlockType.SAND or^b = BlockType.STONE)
@@ -322,13 +575,13 @@ let^respawn = p^{
 let^generate = p^seed:u32^{
     game := Game{version = 1, seed = seed}
     day_time := 90.0
-    for^i from^0 to^MAX_DEBRIS - 1 { debris[i] := Debris{} }
+    for^i in^0 .. MAX_DEBRIS { debris[i] := Debris{} }
     message_time := 0.0
-    for^i from^0 to^VOLUME - 1 { blocks[i] := BlockType.AIR }
-    for^z from^0 to^DEPTH - 1 {
-        for^x from^0 to^WIDTH - 1 {
+    for^i in^0 .. VOLUME { blocks[i] := BlockType.AIR }
+    for^z in^0 .. DEPTH {
+        for^x in^0 .. WIDTH {
             let^top = ground_height(x, z)
-            for^y from^0 to^max(top + 1, SEA + 1) - 1 {
+            for^y in^0 .. max(top + 1, SEA + 1) {
                 var^b = BlockType.STONE
                 if^y = 0 {
                     b := BlockType.BEDROCK
@@ -360,7 +613,11 @@ let^generate = p^seed:u32^{
         for^y from^2 to^HEIGHT - 2 {
             for^z:i64^from^28 to^43 {
                 for^x:i64^from^43 to^62 {
-                    let^d = F3{ x = f32^(x) + 0.5 - cx, y = f32^(y) + 0.5 - cy, z = f32^(z) + 0.5 - cz }
+                    let^d = F3{
+                        x = f32^(x) + 0.5 - cx,
+                        y = f32^(y) + 0.5 - cy,
+                        z = f32^(z) + 0.5 - cz
+                    }
                     if^length_sq(d) < 3.2 { put(cell(x, y, z), BlockType.AIR) }
                 }
             }
@@ -378,116 +635,9 @@ let^generate = p^seed:u32^{
     dirty_all()
 }
 
-# --- walking, swimming, and a grid ray ---------------------------------------
+# --- fixed timestep and a grid ray ------------------------------------------
 
-let^RADIUS:f32^= 0.29
-let^BODY_HEIGHT:f32^= 1.8
-let^EYE_HEIGHT:f32^= 1.62
 let^STEP:f32^= 1.0 / 120.0
-
-let^eye = f^-> F3 { game.player.feet + F3{ x = 0.0, y = EYE_HEIGHT, z = 0.0 } }
-let^forward = f^-> F3 {
-    let^p = game.player
-    return^{
-        x = math.sin(p.yaw) * math.cos(p.pitch),
-        y = math.sin(p.pitch),
-        z = -math.cos(p.yaw) * math.cos(p.pitch)
-    }
-}
-let^overlaps = f^feet:F3, c:Cell -> bool^{
-    let^p = position(c)
-    return^feet.x + RADIUS > p.x and^feet.x - RADIUS < p.x + 1.0 and^
-        feet.y + BODY_HEIGHT > p.y and^feet.y < p.y + 1.0 and^
-        feet.z + RADIUS > p.z and^feet.z - RADIUS < p.z + 1.0
-}
-let^blocked = f^feet:F3 -> bool^{
-    # The finite map's edges are walls, while its sky is open.
-    if^feet.x < RADIUS or^feet.z < RADIUS or^feet.x > f32^(WIDTH) - RADIUS or^
-        feet.z > f32^(DEPTH) - RADIUS or^feet.y < 1.0 {
-            return^true^
-        }
-    let^lo = floor_cell(feet - F3{x = RADIUS, y = 0.0, z = RADIUS})
-    let^hi = floor_cell(feet + F3{x = RADIUS, y = BODY_HEIGHT - 0.001, z = RADIUS})
-    for^y from^lo.y to^hi.y {
-        for^z from^lo.z to^hi.z {
-            for^x from^lo.x to^hi.x {
-                if^solid(block_at(cell(x, y, z))) { return^true^}
-            }
-        }
-    }
-    return^false^
-}
-let^wet = f^feet:F3 -> bool^{
-    block_at(floor_cell(feet + F3{x = 0.0, y = 0.05, z = 0.0})) = BlockType.WATER
-}
-let^supported = f^feet:F3 -> bool^{
-    # Leave a little overlap with the floor when sneaking onto a ledge.
-    # Water does not count as support, and only the layer below the feet
-    # matters: a nearby wall must not let us walk off a roof.
-    let^margin = RADIUS - 0.02
-    let^lo = floor_cell(feet - F3{x = margin, y = 0.05, z = margin})
-    let^hi = floor_cell(feet + F3{x = margin, y = -0.05, z = margin})
-    for^z from^lo.z to^hi.z {
-        for^x from^lo.x to^hi.x {
-            if^solid(block_at(cell(x, lo.y, z))) { return^true^}
-        }
-    }
-    return^false^
-}
-let^move_axis = p^delta:F3, keep_support:bool^-> bool^{
-    let^start = game.player.feet
-    if^!blocked(start + delta) and^(!keep_support or^supported(start + delta)) {
-        game.player.feet := start + delta
-        return^false^
-    }
-    # Find the contact point. The fixed timestep bounds each move to less
-    # than a block, and bisection leaves the player just outside the wall.
-    var^lo:f32^= 0.0
-    var^hi:f32^= 1.0
-    for^1 to^10 {
-        let^mid = (lo + hi) * 0.5
-        let^candidate = start + delta * mid
-        if^blocked(candidate) or^(keep_support and^!supported(candidate)) {
-            hi := mid
-        else^:
-            lo := mid
-        }
-    }
-    game.player.feet := start + delta * lo
-    return^true^
-}
-overload^move_axis = p^delta:F3 -> bool^{ return^move_axis(delta, false^) }
-
-let^walk = p^direction:F2, jump:bool^, run:bool^, sneak:bool^{
-    let^swimming = wet(game.player.feet)
-    let^speed:f32^= if^swimming: 2.6 el^sneak: 1.5 el^run: 6.0 el^: 4.2;
-    let^right = F3{x = math.cos(game.player.yaw), y = 0.0, z = math.sin(game.player.yaw)}
-    let^ahead = F3{x = math.sin(game.player.yaw), y = 0.0, z = -math.cos(game.player.yaw)}
-    var^input = direction
-    if^input dot^input > 1.0 { input := input.normalized() }
-    let^delta = (right * input.x + ahead * input.y) * (speed * STEP)
-    let^keep_support = sneak and^game.player.grounded and^!jump and^!swimming
-    move_axis(F3{x = delta.x, y = 0.0, z = 0.0}, keep_support)
-    move_axis(F3{x = 0.0, y = 0.0, z = delta.z}, keep_support)
-    if^swimming {
-        game.player.velocity := max(game.player.velocity - 4.0 * STEP, -2.0)
-        if^jump {
-            game.player.velocity := 4.0
-            # A kick near the surface clears a one-block shore. Testing
-            # the feet for water keeps this active until we actually exit.
-            if^block_at(floor_cell(game.player.feet + F3{x = 0.0, y = 1.0, z = 0.0})) != BlockType.WATER {
-                game.player.velocity := 8.0
-            }
-        }
-    else^:
-        if^jump and^game.player.grounded { game.player.velocity := 8.0 }
-        game.player.velocity := max(game.player.velocity - 23.0 * STEP, -30.0)
-    }
-    let^hit = move_axis(F3{x = 0.0, y = game.player.velocity * STEP, z = 0.0})
-    game.player.grounded := hit and^game.player.velocity < 0.0
-    if^hit { game.player.velocity := 0.0 }
-}
-overload^walk = p^direction:F2, jump:bool^, run:bool^{ walk(direction, jump, run, false^) }
 
 struct^Hit { found:bool^= false^, at:Cell = Cell{}, before:Cell = Cell{}, distance:f32^= 0.0 }
 let^ray = f^origin:F3, direction:F3, reach:f32^-> Hit {
@@ -536,122 +686,14 @@ let^ray = f^origin:F3, direction:F3, reach:f32^-> Hit {
 
 # --- mining, building, and four recipes --------------------------------------
 
-let^drop_slot = f^b:BlockType-> i64^{
+let^drop_slot = f^b:BlockType -> i64^{
     if^b = BlockType.GRASS or^b = BlockType.DIRT { return^0 }
     if^b = BlockType.STONE or^b = BlockType.COBBLE { return^1 }
     if^b = BlockType.COAL { return^7 }
-    for^i from^0 to^SLOTS - 1 {
+    for^i in^0 .. SLOTS {
         if^SLOT_BLOCK[i] = b { return^i }
     }
     return^-1
-}
-let^pick_material = p^hit:Hit {
-    if^!hit.found { return^}
-    let^slot = drop_slot(block_at(hit.at))
-    if^slot >= 0 and^SLOT_BLOCK[slot] != BlockType.AIR {
-        game.selected := slot
-        if^game.bag[slot] = 0 { say("MINE SOME OF THIS MATERIAL FIRST") }
-    }
-}
-let^mining_seconds = f^b:BlockType -> f32^{
-    if^b = BlockType.BEDROCK { return^0.0 }
-    if^b = BlockType.STONE or^b = BlockType.COBBLE or^b = BlockType.COAL {
-        if^game.tool = 0 { return^0.0 }
-        return^if^game.tool = 1: 1.15 el^: 0.45;
-    }
-    if^b = BlockType.WOOD { return^1.0 }
-    if^b = BlockType.PLANKS { return^0.65 }
-    if^b = BlockType.LEAVES or^b = BlockType.LAMP { return^0.18 }
-    return^0.35
-}
-let^mine = p^c:Cell -> bool^{
-    let^b = block_at(c)
-    let^slot = drop_slot(b)
-    if^slot < 0 or^mining_seconds(b) <= 0.0 { return^false^}
-    if^game.bag[slot] >= 999 {
-        say("THAT STACK IS FULL (999)")
-        return^false^
-    }
-    game.bag[slot] += 1
-    edit(c, BlockType.AIR)
-    scatter(c, b)
-    return^true^
-}
-let^place = p^hit:Hit -> bool^{
-    if^!hit.found or^hit.at = hit.before or^!inside(hit.before) { return^false^}
-    let^slot = game.selected
-    let^b = SLOT_BLOCK[slot]
-    if^b = BlockType.AIR {
-        say("COAL IS FOR CRAFTING LAMPS")
-        return^false^
-    }
-    if^game.bag[slot] = 0 {
-        say("MINE OR CRAFT SOME FIRST")
-        return^false^
-    }
-    if^solid(block_at(hit.before)) or^overlaps(game.player.feet, hit.before) { return^false^}
-    if^b = BlockType.LAMP and^lamp_count = MAX_LAMPS {
-        say("SIXTEEN LIGHTS MAX - PICK ONE UP FIRST")
-        return^false^
-    }
-    edit(hit.before, b)
-    game.bag[slot] -= 1
-    return^true^
-}
-let^can_craft = f^recipe:i64^-> bool^{
-    if^recipe = 0 { return^game.bag[2] >= 1 and^game.bag[3] <= 995 }
-    if^recipe = 1 { return^game.tool = 0 and^game.bag[3] >= 5 }
-    if^recipe = 2 { return^game.tool = 1 and^game.bag[1] >= 3 and^game.bag[3] >= 2 }
-    if^recipe = 3 { return^game.bag[7] >= 1 and^game.bag[3] >= 1 and^game.bag[6] <= 995 }
-    return^false^
-}
-let^craft = p^recipe:i64^-> bool^{
-    if^!can_craft(recipe) {
-        say("NOT ENOUGH MATERIALS, OR UPGRADE ALREADY OWNED")
-        return^false^
-    }
-    if^recipe = 0 {
-        game.bag[2] -= 1
-        game.bag[3] += 4
-        say("MADE FOUR PLANKS")
-        return^true^
-    }
-    if^recipe = 1 {
-        game.bag[3] -= 5
-        game.tool := 1
-        say("WOODEN PICK - NOW YOU CAN MINE STONE")
-        return^true^
-    }
-    if^recipe = 2 {
-        game.bag[1] -= 3
-        game.bag[3] -= 2
-        game.tool := 2
-        say("STONE PICK - FASTER MINING")
-        return^true^
-    }
-    if^recipe = 3 {
-        game.bag[7] -= 1
-        game.bag[3] -= 1
-        game.bag[6] += 4
-        say("MADE FOUR LAMPS - SELECT SLOT 7 TO PLACE")
-        return^true^
-    }
-    return^false^
-}
-let^craft_batches = p^recipe:i64^, all:bool^-> i64^{
-    if^!craft(recipe) { return^0 }
-    var^batches:i64^= 1
-    # can_craft checks both ingredients and stack capacity. Tools become
-    # unavailable once owned, so even "craft all" makes only one upgrade.
-    repeat^while^all and^can_craft(recipe) {
-        craft(recipe)
-        batches += 1
-    }
-    if^batches > 1 {
-        let^made = $"MADE {batches * 4}{(if^recipe = 0: " PLANKS" el^: " LAMPS";)}"
-        say(made.text())
-    }
-    return^batches
 }
 
 # --- explicit saves ----------------------------------------------------------
@@ -683,7 +725,7 @@ let^put_game = p^out:ref^u8^[grow^], g:Game {
     put_f32(out, g.player.yaw)
     put_f32(out, g.player.pitch)
     out.push(if^g.player.grounded: u8^(1) el^: 0;)
-    for^i from^0 to^SLOTS - 1 { put_u32(out, u32^(g.bag[i])) }
+    for^i in^0 .. SLOTS { put_u32(out, u32^(g.bag[i])) }
     put_u32(out, u32^(g.tool))
     put_u32(out, u32^(g.selected))
 }
@@ -694,14 +736,14 @@ let^get_game = f^data:u8^[..] -> Game {
     g.player.yaw := get_f32(data, 24)
     g.player.pitch := get_f32(data, 28)
     g.player.grounded := data[32] != 0
-    for^i from^0 to^SLOTS - 1 { g.bag[i] := i64^(get_u32(data, 33 + i * 4)) }
+    for^i in^0 .. SLOTS { g.bag[i] := i64^(get_u32(data, 33 + i * 4)) }
     g.tool := i64^(get_u32(data, 65))
     g.selected := i64^(get_u32(data, 69))
     return^g
 }
 let^same = f^a:u8^[..], b:u8^[..] -> bool^{
     if^a.len != b.len { return^false^}
-    for^i from^0 to^a.len - 1 {
+    for^i in^0 .. a.len {
         if^a[i] != b[i] { return^false^}
     }
     return^true^
@@ -712,26 +754,26 @@ let^valid_save = f^g:Game, cells:u8^[..] -> bool^{
     if^g.version != 1 or^g.tool < 0 or^g.tool > 2 or^g.selected < 0 or^g.selected >= SLOTS {
         return^false^
     }
-    for^i from^0 to^SLOTS - 1 {
+    for^i in^0 .. SLOTS {
         if^g.bag[i] < 0 or^g.bag[i] > 999 { return^false^}
     }
     var^lights:i64^= 0
-    for^i from^0 to^cells.len - 1 {
+    for^i in^0 .. cells.len {
         if^cells[i] > BlockType.LAMP { return^false^}
         if^cells[i] = BlockType.LAMP { lights += 1 }
     }
     if^lights > MAX_LAMPS { return^false^}
     let^p = g.player
     # Positive tests reject NaNs as well as out-of-range values.
-    if^!(p.feet.x >= RADIUS and^p.feet.x <= f32^(WIDTH) - RADIUS and^
-        p.feet.z >= RADIUS and^p.feet.z <= f32^(DEPTH) - RADIUS and^
-        p.feet.y >= 1.0 and^p.feet.y <= f32^(HEIGHT) + 8.0 and^
-        p.yaw >= -100.0 and^p.yaw <= 100.0 and^abs(p.pitch) <= 1.5 and^
-        abs(p.velocity) <= 30.0) {
-            return^false^
-        }
-    for^z from^0 to^DEPTH - 1 {
-        for^x from^0 to^WIDTH - 1 {
+    if^!(p.feet.x >= Player.RADIUS and^p.feet.x <= f32^(WIDTH) - Player.RADIUS
+    and^ p.feet.z >= Player.RADIUS and^p.feet.z <= f32^(DEPTH) - Player.RADIUS
+    and^ p.feet.y >= 1.0 and^p.feet.y <= f32^(HEIGHT) + 8.0
+    and^ p.yaw >= -100.0 and^p.yaw <= 100.0 and^abs(p.pitch) <= 1.5
+    and^ abs(p.velocity) <= 30.0) {
+        return^false^
+    }
+    for^z in^0 .. DEPTH {
+        for^x in^0 .. WIDTH {
             if^cells[z * WIDTH + x] != BlockType.BEDROCK { return^false^}
         }
     }
@@ -766,9 +808,9 @@ let^restore = p^image:u8^[..] -> bool^{
     }
     game := header
     day_time := saved_time
-    for^i from^0 to^MAX_DEBRIS - 1 { debris[i] := Debris{} }
-    for^i from^0 to^VOLUME - 1 { blocks[i] := saved_blocks[i] }
-    if^blocked(game.player.feet) { respawn() }
+    for^i in^0 .. MAX_DEBRIS { debris[i] := Debris{} }
+    for^i in^0 .. VOLUME { blocks[i] := saved_blocks[i] }
+    if^Player.blocked(game.player.feet) { respawn() }
     find_lamps()
     dirty_all()
     return^true^
@@ -776,7 +818,7 @@ let^restore = p^image:u8^[..] -> bool^{
 let^save_game = p^{
     var^image = u8^[grow^]{}
     save_image(ref^image)
-    if^fs.write("mini_minecraft.sav", image[..]) = nil^ {
+    if^fs.write("mini_minecraft.sav", image[..]) = nil^{
         say("SAVED MINI_MINECRAFT.SAV")
     else^:
         say("SAVE FAILED - CHECK THE WORKING DIRECTORY")
@@ -784,7 +826,7 @@ let^save_game = p^{
 }
 let^load_game = p^{
     var^image = u8^[grow^]{}
-    if^fs.read("mini_minecraft.sav", ref^image) != nil^ {
+    if^fs.read("mini_minecraft.sav", ref^image) != nil^{
         say("NO READABLE MINI_MINECRAFT.SAV")
         return^
     }
@@ -870,9 +912,9 @@ let^pixel = p^out:ref^u8^[grow^], tile:i64^, x:i64^, y:i64^{
 }
 let^make_atlas = p^-> gfx.Texture {
     var^pixels = u8^[grow^]{}
-    for^y from^0 to^TILE_SIZE - 1 {
-        for^tile from^0 to^TILES - 1 {
-            for^x from^0 to^TILE_SIZE - 1 { pixel(ref^pixels, tile, x, y) }
+    for^y in^0 .. TILE_SIZE {
+        for^tile in^0 .. TILES {
+            for^x in^0 .. TILE_SIZE { pixel(ref^pixels, tile, x, y) }
         }
     }
     var^texture = gfx.texture2d(TILE_SIZE * TILES, TILE_SIZE)
@@ -923,7 +965,8 @@ let^face_visible = f^b:BlockType, neighbour:BlockType -> bool^{
     if^b = BlockType.WATER { return^neighbour = BlockType.AIR }
     return^neighbour = BlockType.AIR or^neighbour = BlockType.WATER
 }
-let^add_face = p^vertices:ref^Vertex[grow^], indices:ref^u32^[grow^], c:Cell, b:BlockType, face:i64^{
+let^add_face = p^vertices:ref^Vertex[grow^], indices:ref^u32^[grow^], c:Cell, b:BlockType,
+    face:i64^{
     let^n = NORMAL[face]
     let^u = ACROSS[face]
     let^v = UP[face]
@@ -948,7 +991,9 @@ let^add_face = p^vertices:ref^Vertex[grow^], indices:ref^u32^[grow^], c:Cell, b:
         let^p = position(c) + F3{x = 0.5, y = 0.5, z = 0.5} + position(n) * 0.5 +
             position(u) * (corner.x * 0.5) + position(v) * (corner.y * 0.5)
         let^uv = atlas_uv(tile_for(b, face), corner.x * 0.5 + 0.5, 0.5 - corner.y * 0.5)
-        vertices.push(Vertex{pos = p, normal = position(n), uv = uv, shade = shade, material = f32^(u8^(b))})
+        vertices.push(
+            Vertex{pos = p, normal = position(n), uv = uv, shade = shade, material = f32^(u8^(b))}
+        )
     }
     indices.push(base)
     indices.push(base + 1)
@@ -961,9 +1006,9 @@ let^rebuild_chunk = p^cx:i64^, cz:i64^{
     # Scratch lives only until this procedure returns. The GPU owns a copy.
     var^vertices = Vertex[grow^]{}
     var^indices = u32^[grow^]{}
-    for^y from^0 to^HEIGHT - 1 {
-        for^z from^cz * CHUNK to^(cz + 1) * CHUNK - 1 {
-            for^x from^cx * CHUNK to^(cx + 1) * CHUNK - 1 {
+    for^y in^0 .. HEIGHT {
+        for^z in^cz * CHUNK .. (cz + 1) * CHUNK {
+            for^x in^cx * CHUNK .. (cx + 1) * CHUNK {
                 let^c = cell(x, y, z)
                 let^b = block_at(c)
                 if^b = BlockType.AIR { continue^}
@@ -987,13 +1032,13 @@ let^rebuild_chunk = p^cx:i64^, cz:i64^{
 }
 let^rebuild_dirty = p^{
     var^any = false^
-    for^i from^0 to^meshes.len - 1 { any := any or^meshes[i].dirty }
+    for^i in^0 .. meshes.len { any := any or^meshes[i].dirty }
     if^!any { return^}
-    for^z from^0 to^DEPTH - 1 {
-        for^x from^0 to^WIDTH - 1 { column_top[z * WIDTH + x] := highest(x, z) }
+    for^z in^0 .. DEPTH {
+        for^x in^0 .. WIDTH { column_top[z * WIDTH + x] := highest(x, z) }
     }
-    for^cz from^0 to^CHUNKS_Z - 1 {
-        for^cx from^0 to^CHUNKS_X - 1 {
+    for^cz in^0 .. CHUNKS_Z {
+        for^cx in^0 .. CHUNKS_X {
             if^meshes[cz * CHUNKS_X + cx].dirty { rebuild_chunk(cx, cz) }
         }
     }
@@ -1004,7 +1049,7 @@ let^debris_vertices = p^out:ref^Vertex[grow^], right:F3, up:F3 {
     # Only a small patch of each tile is needed for a chip of that material.
     let^order:i64^[6] = {0, 1, 2, 0, 2, 3}
     let^normal = right cross^up
-    for^j from^0 to^MAX_DEBRIS - 1 {
+    for^j in^0 .. MAX_DEBRIS {
         let^bit = debris[j]
         if^bit.life <= 0.0 { continue^}
         let^size = 0.065 * min(1.0, bit.life * 8.0)
@@ -1012,8 +1057,10 @@ let^debris_vertices = p^out:ref^Vertex[grow^], right:F3, up:F3 {
             let^corner = CORNERS[order[i]]
             let^p = bit.pos + right * (corner.x * size) + up * (corner.y * size)
             let^uv = atlas_uv(bit.tile, 0.5 + corner.x * 0.125, 0.5 - corner.y * 0.125)
-            out.push(Vertex{pos = p, normal = normal, uv = uv, shade = sky_light(floor_cell(p)),
-                material = -1.0})
+            out.push(Vertex{
+                pos = p, normal = normal, uv = uv, shade = sky_light(floor_cell(p)),
+                material = -1.0
+            })
         }
     }
 }
@@ -1208,11 +1255,12 @@ let^FONT_ROWS:u8^[301] = {
 }
 # Where the seven rows of c start in FONT_ROWS, or -1 for a blank.
 let^glyph = f^c:u8^-> i64^{
-    for^i from^0 to^FONT_CHARS.bytes.len - 1 {
+    for^i in^0 .. FONT_CHARS.bytes.len {
         if^FONT_CHARS.bytes[i] = c { return^i * 7 }
     }
     return^-1
 }
+
 struct^HudVertex { pos:F2 = { x = 0.0, y = 0.0 }, uv:F2 = { x = 0.0, y = 0.0 }, color:u8^[4] }
 let^INK:u8^[4] = {235, 237, 223, 255}
 let^MUTED:u8^[4] = {166, 183, 181, 255}
@@ -1233,7 +1281,7 @@ let^rect = p^out:ref^HudVertex[grow^], x:f32^, y:f32^, w:f32^, h:f32^, color:u8^
 }
 let^text = p^out:ref^HudVertex[grow^], x:f32^, y:f32^, words:read^u8^[..], color:u8^[4], scale:f32^{
     var^at = x
-    for^i from^0 to^words.len - 1 {
+    for^i in^0 .. words.len {
         let^rows = glyph(words[i])
         if^rows >= 0 {
             for^row:i64^from^0 to^6 {
@@ -1247,6 +1295,7 @@ let^text = p^out:ref^HudVertex[grow^], x:f32^, y:f32^, words:read^u8^[..], color
         at += 6.0 * scale
     }
 }
+
 let^centred = p^out:ref^HudVertex[grow^], middle:f32^, y:f32^, words:read^u8^[..], color:u8^[4] {
     text(out, middle - f32^(words.len) * 6.0, y, words, color, 2.0)
 }
@@ -1268,6 +1317,7 @@ let^block_name = f^b:BlockType -> string^{
     if^slot >= 0 { return^SLOT_NAME[slot] }
     return^""
 }
+
 let^HELP_LINES:string^[9] = {
     "WASD WALK  /  SPACE JUMP OR SWIM", "SHIFT RUN  /  ARROWS LOOK",
     "CTRL SNEAK - STOPS AT LEDGES",
@@ -1276,10 +1326,18 @@ let^HELP_LINES:string^[9] = {
     "1-8 OR WHEEL SELECT  /  C CRAFT", "F5 SAVE  /  F9 LOAD  /  F12 PHOTO",
     "ESC PAUSE  /  H HIDE HELP"
 }
-let^RECIPE_TITLES:string^[4] = {"1  FOUR PLANKS", "2  WOODEN PICK", "3  STONE PICK", "4  FOUR LAMPS"}
+
+let^RECIPE_TITLES:string^[4] = {
+    "1  FOUR PLANKS",
+    "2  WOODEN PICK",
+    "3  STONE PICK",
+    "4  FOUR LAMPS"
+}
+
 let^RECIPE_COSTS:string^[4] = {
     "1 WOOD", "5 PLANKS", "3 STONE + 2 PLANKS + WOODEN PICK", "1 COAL + 1 PLANK"
 }
+
 let^hud = p^out:ref^HudVertex[grow^], size:F2, hit:Hit, progress:f32^, crafting:bool^, paused:bool^,
     help:bool^{
     rect(out, 18.0, 18.0, 418.0, 99.0, PANEL)
@@ -1290,10 +1348,10 @@ let^hud = p^out:ref^HudVertex[grow^], size:F2, hit:Hit, progress:f32^, crafting:
     let^status = $"{tool}  /  SEED {game.seed}"
     text(out, 34.0, 79.0, status.text().bytes, MUTED, 1.0)
     let^phase = if^daylight() < 0.2: "NIGHT - LIGHT YOUR HOME"
-        el^day_time > 450.0: "DAWN"
-        el^day_time > 270.0: "DUSK - CRAFT SOME LAMPS"
-        el^day_time < 150.0: "MORNING"
-        el^: "AFTERNOON";
+    el^day_time > 450.0: "DAWN"
+    el^day_time > 270.0: "DUSK - CRAFT SOME LAMPS"
+    el^day_time < 150.0: "MORNING"
+    el^: "AFTERNOON";
     text(out, 34.0, 95.0, phase.bytes, MUTED, 1.0)
 
     if^help and^!crafting and^!paused {
@@ -1309,7 +1367,7 @@ let^hud = p^out:ref^HudVertex[grow^], size:F2, hit:Hit, progress:f32^, crafting:
 
     let^bar_x = (size.x - f32^(SLOTS) * 66.0) * 0.5
     let^bar_y = size.y - 82.0
-    for^i from^0 to^SLOTS - 1 {
+    for^i in^0 .. SLOTS {
         let^x = bar_x + f32^(i) * 66.0
         rect(out, x, bar_y, 62.0, 64.0, if^game.selected = i: GOLD el^: PANEL;)
         rect(out, x + 3.0, bar_y + 3.0, 56.0, 58.0, PANEL)
@@ -1355,7 +1413,7 @@ let^hud = p^out:ref^HudVertex[grow^], size:F2, hit:Hit, progress:f32^, crafting:
         for^i:i64^from^0 to^3 {
             let^row_y = y + 78.0 + f32^(i) * 46.0
             rect(out, x + 16.0, row_y, 472.0, 40.0, row_color)
-            let^ready = can_craft(i)
+            let^ready = game.can_craft(i)
             text(out, x + 28.0, row_y + 7.0, RECIPE_TITLES[i].bytes, if^ready: INK el^: MUTED;, 1.5)
             let^owned = (i = 1 and^game.tool >= 1) or^(i = 2 and^game.tool >= 2)
             let^state = if^ready: "READY" el^owned: "OWNED" el^: "NEED";
@@ -1395,7 +1453,7 @@ void main() { result = texture(atlas, v_uv) * v_color; }
 
 let^world_checksum = f^-> u32^{
     var^h:u32^= 2166136261
-    for^i from^0 to^VOLUME - 1 { h := (h bitxor^u32^(blocks[i])) * 16777619 }
+    for^i in^0 .. VOLUME { h := (h bitxor^u32^(blocks[i])) * 16777619 }
     return^h
 }
 let^same_bag = f^a:i64^[8], b:i64^[8] -> bool^{
@@ -1407,7 +1465,7 @@ let^same_bag = f^a:i64^[8], b:i64^[8] -> bool^{
 let^gameplay_tests = p^{
     generate(123)
     let^checksum = world_checksum()
-    assert^(!blocked(game.player.feet))
+    assert^(!Player.blocked(game.player.feet))
     assert^(valid_save(game, blocks[..]))
     assert^(daylight() = 1.0 and^sun_direction().y > 0.0)
     day_time := 450.0
@@ -1418,7 +1476,7 @@ let^gameplay_tests = p^{
     generate(123)
     assert^(checksum = world_checksum())
     var^counts = {0 repeat^13}
-    for^i from^0 to^VOLUME - 1 { counts[blocks[i]] += 1 }
+    for^i in^0 .. VOLUME { counts[blocks[i]] += 1 }
     assert^(counts[i64^(BlockType.WOOD)] > 20 and^counts[i64^(BlockType.WATER)] > 20
         and^counts[i64^(BlockType.COAL)] > 20)
     generate(321)
@@ -1427,69 +1485,87 @@ let^gameplay_tests = p^{
     # A small, controlled arena isolates movement and interaction from the
     # terrain generator. All checks call the same procedures as the game.
     game := Game{version = 1, seed = 7}
-    for^i from^0 to^VOLUME - 1 { blocks[i] := BlockType.AIR }
-    for^z from^0 to^DEPTH - 1 {
-        for^x from^0 to^WIDTH - 1 { put(cell(x, 0, z), BlockType.BEDROCK) }
+    for^i in^0 .. VOLUME { blocks[i] := BlockType.AIR }
+    for^z in^0 .. DEPTH {
+        for^x in^0 .. WIDTH { put(cell(x, 0, z), BlockType.BEDROCK) }
     }
     game.player := Player{feet = F3{x = 10.5, y = 1.001, z = 10.5}}
+    # Methods act on their receiver, including when it is not the global game.
+    var^visitor = Player{feet = F3{x = 20.5, y = 1.001, z = 20.5}}
+    assert^(abs(visitor.eye().y - (visitor.feet.y + Player.EYE_HEIGHT)) < 0.001)
+    assert^(visitor.forward().z = -1.0)
+    visitor.walk(F2{x = 1.0, y = 0.0}, false^, false^)
+    assert^(visitor.feet.x > 20.5 and^game.player.feet.x = 10.5)
+    var^other = Game{}
+    other.bag[2] := 2
+    assert^(other.craft_batches(0, true^) = 2 and^other.bag[3] = 8)
+    assert^(game.bag[2] = 0 and^game.bag[3] = 0)
+    other.tool := 2
+    assert^(other.mining_seconds(BlockType.STONE) > 0.0 and^game.mining_seconds(BlockType.STONE) = 0.0)
+    var^fragment = Debris{velocity = F3{x = 1.0, y = 0.0, z = 0.0}, life = 1.0}
+    fragment.update(0.1)
+    assert^(abs(fragment.pos.x - 0.1) < 0.001 and^abs(fragment.life - 0.9) < 0.001)
+
     put(cell(10, 2, 7), BlockType.WOOD)
-    let^hit = ray(eye(), F3{x = 0.0, y = 0.0, z = -1.0}, 6.0)
+    let^hit = ray(game.player.eye(), F3{x = 0.0, y = 0.0, z = -1.0}, 6.0)
     assert^(hit.found and^hit.at = cell(10, 2, 7) and^hit.before = cell(10, 2, 8))
-    assert^(!ray(eye(), F3{x = 1.0, y = 0.0, z = 0.0}, 6.0).found)
-    assert^(mine(hit.at) and^game.bag[2] = 1 and^block_at(hit.at) = BlockType.AIR)
+    assert^(!ray(game.player.eye(), F3{x = 1.0, y = 0.0, z = 0.0}, 6.0).found)
+    assert^(game.mine(hit.at) and^game.bag[2] = 1 and^block_at(hit.at) = BlockType.AIR)
     assert^(debris[0].life > 0.0)
     animate_debris(1.0)
-    for^i from^0 to^MAX_DEBRIS - 1 { assert^(debris[i].life <= 0.0) }
-    assert^(!mine(cell(10, 0, 10)))
-    assert^(craft(0) and^game.bag[3] = 4 and^game.bag[2] = 0)
-    assert^(!craft(1))
+    for^i in^0 .. MAX_DEBRIS {
+        assert^(debris[i].life <= 0.0)
+    }
+    assert^(!game.mine(cell(10, 0, 10)))
+    assert^(game.craft(0) and^game.bag[3] = 4 and^game.bag[2] = 0)
+    assert^(!game.craft(1))
     game.bag[2] := 1
-    assert^(craft(0) and^craft(1) and^game.tool = 1 and^game.bag[3] = 3)
+    assert^(game.craft(0) and^game.craft(1) and^game.tool = 1 and^game.bag[3] = 3)
     for^x:i64^from^0 to^2 {
         put(cell(15 + x, 1, 10), BlockType.STONE)
-        assert^(mine(cell(15 + x, 1, 10)))
+        assert^(game.mine(cell(15 + x, 1, 10)))
     }
-    assert^(craft(2) and^game.tool = 2 and^game.bag[1] = 0 and^game.bag[3] = 1)
+    assert^(game.craft(2) and^game.tool = 2 and^game.bag[1] = 0 and^game.bag[3] = 1)
     put(cell(15, 1, 10), BlockType.COAL)
-    assert^(mine(cell(15, 1, 10)) and^craft(3) and^game.bag[6] = 4)
+    assert^(game.mine(cell(15, 1, 10)) and^game.craft(3) and^game.bag[6] = 4)
     game.selected := 6
-    assert^(place(hit) and^block_at(hit.before) = BlockType.LAMP and^lamp_count = 1)
+    assert^(game.place(hit) and^block_at(hit.before) = BlockType.LAMP and^lamp_count = 1)
     game.selected := 0
-    pick_material(Hit{found = true^, at = hit.before, before = hit.at, distance = 1.0})
+    game.pick_material(Hit{found = true^, at = hit.before, before = hit.at, distance = 1.0})
     assert^(game.selected = 6 and^game.bag[6] = 3)
-    assert^(!place(hit))                    # Cannot place twice in the same cell.
+    assert^(!game.place(hit))                    # Cannot place twice in the same cell.
     let^self_hit = Hit{found = true^, at = cell(10, 1, 9), before = cell(10, 1, 10), distance = 1.0}
-    assert^(!place(self_hit))               # Cannot trap the player in a block.
-    assert^(mine(hit.before) and^lamp_count = 0)
+    assert^(!game.place(self_hit))               # Cannot trap the player in a block.
+    assert^(game.mine(hit.before) and^lamp_count = 0)
     let^still = F2{x = 0.0, y = 0.0}
-    for^1 to^120 { walk(still, false^, false^) }
+    for^1 to^120 { game.player.walk(still, false^, false^) }
     assert^(game.player.grounded and^abs(game.player.feet.y - 1.0) < 0.005)
     var^peak:f32^= 0.0
     for^i:i64^from^0 to^179 {
-        walk(still, i = 0, false^)
+        game.player.walk(still, i = 0, false^)
         peak := max(peak, game.player.feet.y)
     }
     assert^(peak > 2.1 and^game.player.grounded)
     for^y:i64^from^1 to^4 { put(cell(11, y, 10), BlockType.STONE) }
-    for^1 to^120 { walk(F2{x = 1.0, y = 0.0}, false^, true^) }
-    assert^(game.player.feet.x < 10.711 and^!blocked(game.player.feet))
-    assert^(blocked(F3{x = 0.0, y = 1.0, z = 2.0}))
+    for^1 to^120 { game.player.walk(F2{x = 1.0, y = 0.0}, false^, true^) }
+    assert^(game.player.feet.x < 10.711 and^!Player.blocked(game.player.feet))
+    assert^(Player.blocked(F3{x = 0.0, y = 1.0, z = 2.0}))
 
     # A low ceiling stops a jump; swimming can climb a one-block shore.
     put(cell(10, 3, 10), BlockType.STONE)
-    for^i:i64^from^0 to^39 { walk(still, i = 0, false^) }
-    assert^(game.player.feet.y < 1.201 and^!blocked(game.player.feet))
+    for^i:i64^from^0 to^39 { game.player.walk(still, i = 0, false^) }
+    assert^(game.player.feet.y < 1.201 and^!Player.blocked(game.player.feet))
     game.player := Player{feet = F3{x = 30.5, y = 1.0, z = 30.5}}
     for^y:i64^from^1 to^3 {
         for^x:i64^from^29 to^31 { put(cell(x, y, 30), BlockType.WATER) }
         put(cell(32, y, 30), BlockType.SAND)
     }
     put(cell(32, 4, 30), BlockType.SAND)
-    for^1 to^240 { walk(F2{x = 1.0, y = 0.0}, true^, false^) }
-    assert^(game.player.feet.x > 32.5 and^!blocked(game.player.feet))
+    for^1 to^240 { game.player.walk(F2{x = 1.0, y = 0.0}, true^, false^) }
+    assert^(game.player.feet.x > 32.5 and^!Player.blocked(game.player.feet))
     game.player := Player{feet = F3{x = 30.5, y = 1.0, z = 30.5}}
-    for^1 to^240 { walk(F2{x = 1.0, y = 0.0}, true^, false^, true^) }
-    assert^(game.player.feet.x > 32.5 and^!blocked(game.player.feet))
+    for^1 to^240 { game.player.walk(F2{x = 1.0, y = 0.0}, true^, false^, true^) }
+    assert^(game.player.feet.x > 32.5 and^!Player.blocked(game.player.feet))
 
     # Sneaking holds every edge and corner of a one-block platform, even
     # if run is held too. Jumping or releasing sneak still lets us leave.
@@ -1500,20 +1576,24 @@ let^gameplay_tests = p^{
         { x = 1.0, y = 1.0 }, { x = -1.0, y = 1.0 },
         { x = 1.0, y = -1.0 }, { x = -1.0, y = -1.0 }
     }
-    let^platform = Player{ feet = { x = 60.5, y = 4.001, z = 60.5 }, grounded = true^ }
+    let^platform = Player{ feet = { x = 60.5, y = 4.001, z = 60.5 }, grounded = true^}
     for^d:i64^from^0 to^7 {
         game.player := platform
-        for^1 to^240 { walk(directions[d], false^, true^, true^) }
-        assert^(game.player.feet.y > 3.999 and^game.player.grounded and^supported(game.player.feet))
+        for^1 to^240 { game.player.walk(directions[d], false^, true^, true^) }
+        assert^(
+            game.player.feet.y > 3.999 and^game.player.grounded and^Player.supported(
+                game.player.feet
+            )
+        )
     }
-    for^1 to^120 { walk(F2{ x = -1.0, y = -1.0 }, false^, false^) }
+    for^1 to^120 { game.player.walk(F2{ x = -1.0, y = -1.0 }, false^, false^) }
     assert^(game.player.feet.y < 3.0)
     game.player := platform
-    for^i:i64^from^0 to^119 { walk(F2{ x = 1.0, y = 0.0 }, i = 0, false^, true^) }
+    for^i:i64^from^0 to^119 { game.player.walk(F2{ x = 1.0, y = 0.0 }, i = 0, false^, true^) }
     assert^(game.player.feet.x > 61.3 and^game.player.feet.y < 3.95)
     game.player := platform
     put(cell(60, 3, 60), BlockType.AIR)
-    for^1 to^120 { walk(still, false^, false^, true^) }
+    for^1 to^120 { game.player.walk(still, false^, false^, true^) }
     assert^(game.player.feet.y < 1.01)      # Mining the floor still makes us fall.
 
     # Bulk crafting consumes only complete recipes, respects stack space,
@@ -1522,22 +1602,26 @@ let^gameplay_tests = p^{
     let^saved_tool = game.tool
     game.bag[2] := 3
     game.bag[3] := 0
-    assert^(craft_batches(0, false^) = 1 and^game.bag[2] = 2 and^game.bag[3] = 4)
-    assert^(craft_batches(0, true^) = 2 and^game.bag[2] = 0 and^game.bag[3] = 12)
+    assert^(game.craft_batches(0, false^) = 1 and^game.bag[2] = 2 and^game.bag[3] = 4)
+    assert^(game.craft_batches(0, true^) = 2 and^game.bag[2] = 0 and^game.bag[3] = 12)
     game.bag[2] := 3
     game.bag[3] := 994
-    assert^(craft_batches(0, true^) = 1 and^game.bag[2] = 2 and^game.bag[3] = 998)
-    assert^(craft_batches(0, true^) = 0 and^game.bag[2] = 2)
+    assert^(game.craft_batches(0, true^) = 1 and^game.bag[2] = 2 and^game.bag[3] = 998)
+    assert^(game.craft_batches(0, true^) = 0 and^game.bag[2] = 2)
     game.bag[7] := 3
     game.bag[3] := 2
     game.bag[6] := 0
-    assert^(craft_batches(3, true^) = 2 and^game.bag[7] = 1 and^game.bag[3] = 0 and^game.bag[6] = 8)
+    assert^(
+        game.craft_batches(3, true^) = 2 and^game.bag[7] = 1 and^game.bag[3] = 0 and^game.bag[6] = 8
+    )
     game.tool := 0
     game.bag[3] := 10
-    assert^(craft_batches(1, true^) = 1 and^game.tool = 1 and^game.bag[3] = 5)
-    assert^(craft_batches(1, true^) = 0 and^game.bag[3] = 5)
+    assert^(game.craft_batches(1, true^) = 1 and^game.tool = 1 and^game.bag[3] = 5)
+    assert^(game.craft_batches(1, true^) = 0 and^game.bag[3] = 5)
     game.bag[1] := 6
-    assert^(craft_batches(2, true^) = 1 and^game.tool = 2 and^game.bag[1] = 3 and^game.bag[3] = 3)
+    assert^(
+        game.craft_batches(2, true^) = 1 and^game.tool = 2 and^game.bag[1] = 3 and^game.bag[3] = 3
+    )
     game.bag := saved_inventory
     game.tool := saved_tool
 
@@ -1546,19 +1630,19 @@ let^gameplay_tests = p^{
     assert^(!ray(F3{x = 20.5, y = 8.5, z = 30.5}, F3{x = 1.0, y = 0.0, z = 0.0}, 6.0).found)
     let^back = ray(F3{x = 33.5, y = 8.5, z = 30.5}, F3{x = -1.0, y = 0.0, z = 0.0}, 6.0)
     assert^(back.found and^back.before = cell(31, 8, 30))
-    for^i from^0 to^meshes.len - 1 { meshes[i].dirty := false^}
+    for^i in^0 .. meshes.len { meshes[i].dirty := false^}
     edit(cell(15, 8, 15), BlockType.PLANKS)
     assert^(meshes[0].dirty and^meshes[1].dirty and^meshes[CHUNKS_X].dirty and^
         meshes[CHUNKS_X + 1].dirty)
 
     game.selected := 6
     game.bag[6] := 20
-    for^i from^0 to^MAX_LAMPS - 1 { edit(cell(i + 1, 2, 1), BlockType.LAMP) }
-    assert^(lamp_count = MAX_LAMPS and^!place(back))
+    for^i in^0 .. MAX_LAMPS { edit(cell(i + 1, 2, 1), BlockType.LAMP) }
+    assert^(lamp_count = MAX_LAMPS and^!game.place(back))
     assert^(game.bag[6] = 20)
     game.bag[2] := 999
     put(cell(20, 2, 20), BlockType.WOOD)
-    assert^(!mine(cell(20, 2, 20)) and^block_at(cell(20, 2, 20)) = BlockType.WOOD)
+    assert^(!game.mine(cell(20, 2, 20)) and^block_at(cell(20, 2, 20)) = BlockType.WOOD)
 
     day_time := 450.0
     var^image = u8^[grow^]{}
@@ -1592,7 +1676,7 @@ let^gameplay_tests = p^{
     assert^(!restore(image[..]))
     game.selected := 100
     assert^(!valid_save(game, blocks[..]))
-    print^("mini minecraft: terrain, ray, mining, crafting, placement, movement, daylight and saves passed")
+    print^"mini minecraft: terrain, ray, mining, crafting, placement, movement, daylight and saves passed"
 }
 
 # --- the program: input, simulation, mesh updates, and drawing ---------------
@@ -1645,7 +1729,14 @@ var^world_pipeline = gfx.pipeline(
     true^,
     true^
 )
-var^sky_pipeline = gfx.pipeline(sky_vertex, sky_fragment, gfx.CULL_NONE, gfx.BLEND_NONE, false^, false^)
+var^sky_pipeline = gfx.pipeline(
+    sky_vertex,
+    sky_fragment,
+    gfx.CULL_NONE,
+    gfx.BLEND_NONE,
+    false^,
+    false^
+)
 let^hud_formats:u8^[3] = {0, 0, gfx.VERTEX_UBYTE4_NORM}
 var^hud_pipeline = gfx.pipeline(
     hud_vertex,
@@ -1750,7 +1841,7 @@ repeat^while^gfx.frame() {
             let^clicked = gfx.mouse_pressed(gfx.MOUSE_LEFT) and^mouse.x >= x + 16.0 and^
                 mouse.x < x + 488.0 and^mouse.y >= row_y and^mouse.y < row_y + 40.0
             if^clicked or^gfx.key_pressed(KEYS[i]) {
-                craft_batches(i, gfx.key_down("Left Shift") or^gfx.key_down("Right Shift"))
+                game.craft_batches(i, gfx.key_down("Left Shift") or^gfx.key_down("Right Shift"))
             }
         }
     }
@@ -1758,7 +1849,7 @@ repeat^while^gfx.frame() {
         elapsed += dt
         advance_time(dt)
         animate_debris(dt)
-        for^i from^0 to^SLOTS - 1 {
+        for^i in^0 .. SLOTS {
             if^gfx.key_pressed(KEYS[i]) { game.selected := i }
         }
         let^wheel = gfx.mouse_wheel()
@@ -1785,31 +1876,31 @@ repeat^while^gfx.frame() {
         accumulator += dt
         let^sneak = gfx.key_down("Left Ctrl") or^gfx.key_down("Right Ctrl")
         repeat^while^accumulator >= STEP {
-            walk(direction, gfx.key_down("Space"), gfx.key_down("Left Shift"), sneak)
+            game.player.walk(direction, gfx.key_down("Space"), gfx.key_down("Left Shift"), sneak)
             accumulator -= STEP
         }
     else^:
         accumulator := 0.0
     }
 
-    var^hit = ray(eye(), forward(), 6.0)
+    var^hit = ray(game.player.eye(), game.player.forward(), 6.0)
     if^playing and^was_playing and^!wait_for_buttons {
-        if^gfx.mouse_pressed(gfx.MOUSE_MIDDLE) { pick_material(hit) }
+        if^gfx.mouse_pressed(gfx.MOUSE_MIDDLE) { game.pick_material(hit) }
         if^hit.found and^gfx.mouse_down(gfx.MOUSE_LEFT) {
             if^hit.at != mining_at {
                 progress := 0.0
                 mining_at := hit.at
             }
-            let^seconds = mining_seconds(block_at(hit.at))
+            let^seconds = game.mining_seconds(block_at(hit.at))
             if^seconds > 0.0 {
                 progress += dt / seconds
             else^:
                 progress := 0.0
             }
             if^progress >= 1.0 {
-                mine(hit.at)
+                game.mine(hit.at)
                 progress := 0.0
-                hit := ray(eye(), forward(), 6.0)
+                hit := ray(game.player.eye(), game.player.forward(), 6.0)
             }
         else^:
             progress := 0.0
@@ -1818,12 +1909,12 @@ repeat^while^gfx.frame() {
         # Edges include a press and release between frames. Held input
         # repeats slowly enough to build a wall without emptying a stack.
         place_delay := max(0.0, place_delay - dt)
-        if^gfx.key_pressed("E") or^gfx.mouse_pressed(gfx.MOUSE_RIGHT) or^
-            (place_delay = 0.0 and^(gfx.key_down("E") or^gfx.mouse_down(gfx.MOUSE_RIGHT))) {
-                place(hit)
-                place_delay := 0.22
-                hit := ray(eye(), forward(), 6.0)
-            }
+        if^gfx.key_pressed("E") or^gfx.mouse_pressed(gfx.MOUSE_RIGHT)
+        or^(place_delay = 0.0 and^(gfx.key_down("E") or^gfx.mouse_down(gfx.MOUSE_RIGHT))) {
+            game.place(hit)
+            place_delay := 0.22
+            hit := ray(game.player.eye(), game.player.forward(), 6.0)
+        }
     else^:
         progress := 0.0
         place_delay := 0.0
@@ -1843,14 +1934,14 @@ repeat^while^gfx.frame() {
         fail("HUD upload")
     }
 
-    let^ahead = forward()
+    let^ahead = game.player.forward()
     let^right = (ahead cross^F3{x = 0.0, y = 1.0, z = 0.0}).normalized()
     let^up = right cross^ahead
     var^fragments = Vertex[grow^]{}
     debris_vertices(ref^fragments, right, up)
     if^fragments.len > 0 and^!debris_buffer.update(fragments.bytes) { fail("fragment upload") }
     let^aspect = pixels.x / pixels.y
-    let^camera = eye()
+    let^camera = game.player.eye()
     let^view = look_at(camera, camera + ahead, F3{x = 0.0, y = 1.0, z = 0.0})
     let^view_proj = multiply(perspective(1.15, aspect, 0.05, 150.0), view)
     let^underwater = block_at(floor_cell(camera)) = BlockType.WATER
@@ -1889,7 +1980,7 @@ repeat^while^gfx.frame() {
         gfx.bind_texture(gfx.FRAGMENT, 0, atlas, sampler)
         gfx.push_uniforms(gfx.VERTEX, 0, view_proj.m.bytes)
         gfx.push_uniforms(gfx.FRAGMENT, 0, scene.bytes)
-        for^i from^0 to^meshes.len - 1 {
+        for^i in^0 .. meshes.len {
             if^meshes[i].count = 0 { continue^}
             meshes[i].vertices.bind()
             meshes[i].indices.bind_index()
@@ -1907,12 +1998,20 @@ repeat^while^gfx.frame() {
         gfx.end_pass()
     }
     if^gfx.key_pressed("F12") {
-        say(if^gfx.screenshot("mini_minecraft.png"): "SAVED MINI_MINECRAFT.PNG" el^: "SCREENSHOT FAILED";)
+        say(
+            if^gfx.screenshot("mini_minecraft.png"): "SAVED MINI_MINECRAFT.PNG"
+            el^: "SCREENSHOT FAILED";
+        )
     }
     drawn += 1
     if^drawn = frames { break^}
 }
 if^frames > 0 {
-    print^("drew ", drawn, " frames; saved mini_minecraft.png: ", gfx.screenshot("mini_minecraft.png"))
+    print^(
+        "drew ",
+        drawn,
+        " frames; saved mini_minecraft.png: ",
+        gfx.screenshot("mini_minecraft.png")
+    )
 }
 gfx.close()
