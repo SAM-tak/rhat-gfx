@@ -1932,20 +1932,14 @@ var^atlas = gfx.texture2d(ATLAS_W, ATLAS_H)
 let^uploaded = atlas.update(atlas_pixels[..])
 let^sampler = gfx.sampler(gfx.NEAREST, gfx.CLAMP)
 var^world_pipeline = gfx.pipeline(
-    world_vertex,
-    world_fragment,
-    gfx.CULL_NONE,
-    gfx.BLEND_NONE,
-    true^,
-    true^
+    world_vertex, world_fragment,
+    gfx.CULL_NONE, gfx.BLEND_NONE,
+    true^, true^
 )
 var^hud_pipeline = gfx.pipeline(
-    hud_vertex,
-    hud_fragment,
-    gfx.CULL_NONE,
-    gfx.BLEND_ALPHA,
-    false^,
-    false^
+    hud_vertex, hud_fragment,
+    gfx.CULL_NONE, gfx.BLEND_ALPHA,
+    false^, false^
 )
 load_sounds(quiet or^frames > 0)
 if^atlas.id = 0 or^!uploaded or^sampler.id = 0 or^world_pipeline.id = 0 or^hud_pipeline.id = 0 {
