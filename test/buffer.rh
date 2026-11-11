@@ -29,7 +29,7 @@ let^vertices:f32^[15] = {
     -0.7, -0.7, 0.0, 1.0, 1.0,
     0.7, -0.7, 1.0, 0.0, 1.0
 }
-var^buffer = gfx.buffer(gfx.BUFFER_VERTEX, vertices.bytes)
+var^buffer = gfx.buffer(gfx.BUFFER_VERTEX, bytesof^vertices)
 if^pipeline.id = 0 or^buffer.id = 0 {
     gfx.error(ref^ why)
     print^("setup failed: ", string^(why[..]) catch^ "?")

@@ -54,7 +54,7 @@ let^vertices:f32^[24] = {
     -0.6, -0.6, 0.0, 1.0,   0.6, -0.6, 1.0, 1.0,   0.6, 0.6, 1.0, 0.0,
     -0.6, -0.6, 0.0, 1.0,   0.6, 0.6, 1.0, 0.0,   -0.6, 0.6, 0.0, 0.0
 }
-var^buffer = gfx.buffer(gfx.BUFFER_VERTEX, vertices.bytes)
+var^buffer = gfx.buffer(gfx.BUFFER_VERTEX, bytesof^vertices)
 var^pipeline = gfx.pipeline(vs, fs, gfx.CULL_NONE, gfx.BLEND_NONE, false^, false^)
 if^texture.id = 0 or^!uploaded or^sampler.id = 0 or^buffer.id = 0 or^pipeline.id = 0 {
     gfx.error(ref^why)
@@ -75,7 +75,7 @@ repeat^while^gfx.frame() and^frames < 40 {
         pipeline.bind()
         buffer.bind()
         gfx.bind_texture(gfx.FRAGMENT, 0, texture, sampler)
-        gfx.push_uniforms(gfx.VERTEX, 0, params.bytes)
+        gfx.push_uniforms(gfx.VERTEX, 0, bytesof^params)
         gfx.draw(6)
         gfx.end_pass()
     }

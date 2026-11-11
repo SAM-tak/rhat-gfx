@@ -2010,15 +2010,12 @@ let^draw_world = p^width:f32^, height:f32^{
     var^mesh = Vertex[grow^]{}
     world_mesh(ref^mesh)
     sprite_mesh(ref^mesh)
-    if^world_buffer.id = 0 or^world_buffer.size() < mesh.bytes.len {
+    let^bytes = bytesof^mesh
+    if^world_buffer.id = 0 or^world_buffer.size() < bytes.len {
         if^world_buffer.id != 0 { world_buffer.dispose() }
-        world_buffer := gfx.buffer_sized(
-            gfx.BUFFER_VERTEX,
-            max(4096, mesh.bytes.len * 2),
-            mesh.bytes
-        )
+        world_buffer := gfx.buffer_sized(gfx.BUFFER_VERTEX, max(4096, bytes.len * 2), bytes)
     else^:
-        world_buffer.update(mesh.bytes)
+        world_buffer.update(bytes)
     }
     let^ex = player.pos.x
     let^ey = player.z + (
@@ -2040,7 +2037,7 @@ let^draw_world = p^width:f32^, height:f32^{
         world_pipeline.bind()
         gfx.bind_texture(gfx.FRAGMENT, 0, atlas, sampler)
         world_buffer.bind()
-        gfx.push_uniforms(gfx.VERTEX, 0, camera.bytes)
+        gfx.push_uniforms(gfx.VERTEX, 0, bytesof^camera)
         gfx.draw(mesh.len)
         draw_hud_pass(width, height, screen, hud_count)
         gfx.end_pass()
@@ -2051,11 +2048,14 @@ let^draw_world = p^width:f32^, height:f32^{
 let^upload_hud = p^screen:F2 -> i64^{
     var^hud = HudVertex[grow^]{}
     draw_hud(ref^hud, screen, paused, help, map)
-    if^hud_buffer.id = 0 or^hud_buffer.size() < hud.bytes.len {
-        if^hud_buffer.id != 0 { hud_buffer.dispose() }
-        hud_buffer := gfx.buffer_sized(gfx.BUFFER_VERTEX, max(4096, hud.bytes.len * 2), hud.bytes)
+    let^bytes = bytesof^hud
+    if^hud_buffer.id = 0 or^hud_buffer.size() < bytes.len {
+        if^hud_buffer.id != 0 {
+            hud_buffer.dispose()
+        }
+        hud_buffer := gfx.buffer_sized(gfx.BUFFER_VERTEX, max(4096, bytes.len * 2), bytes)
     else^:
-        hud_buffer.update(hud.bytes)
+        hud_buffer.update(bytes)
     }
     return^hud.len
 }
@@ -2066,7 +2066,7 @@ let^draw_hud_pass = p^width:f32^, height:f32^, screen:F2, count:i64^{
     hud_pipeline.bind()
     gfx.bind_texture(gfx.FRAGMENT, 0, atlas, sampler)
     hud_buffer.bind()
-    gfx.push_uniforms(gfx.VERTEX, 0, canvas.bytes)
+    gfx.push_uniforms(gfx.VERTEX, 0, bytesof^canvas)
     gfx.draw(count)
 }
 

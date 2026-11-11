@@ -140,7 +140,9 @@ def^Player {
         self^.feet := start + delta * lo
         return^true^
     }
-    overload^move_axis = p^self^, delta:F3 -> bool^{ return^self^.move_axis(delta, false^) }
+    overload^move_axis = p^self^, delta:F3 -> bool^{
+        return^self^.move_axis(delta, false^)
+    }
 
     walk = p^self^, direction:F2, jump:bool^, run:bool^, sneak:bool^{
         let^swimming = Self^.wet(self^.feet)
@@ -173,8 +175,9 @@ def^Player {
         self^.grounded := hit and^self^.velocity < 0.0
         if^hit { self^.velocity := 0.0 }
     }
-    overload^walk = p^self^, direction:F2, jump:bool^,
-        run:bool^{ self^.walk(direction, jump, run, false^) }
+    overload^walk = p^self^, direction:F2, jump:bool^, run:bool^{
+        self^.walk(direction, jump, run, false^)
+    }
 
     overlaps = f^feet:F3, c:Cell -> bool^{
         let^p = position(c)
@@ -185,14 +188,12 @@ def^Player {
 
     blocked = f^feet:F3 -> bool^{
         # The finite map's edges are walls, while its sky is open.
-        if^feet.x < Self^.RADIUS or^feet.z < Self^.RADIUS or^feet.x > f32^(WIDTH) - Self^.RADIUS or^
-            feet.z > f32^(DEPTH) - Self^.RADIUS or^feet.y < 1.0 {
-                return^true^
-            }
+        if^feet.x < Self^.RADIUS or^feet.z < Self^.RADIUS or^feet.x > f32^(WIDTH) - Self^.RADIUS
+        or^feet.z > f32^(DEPTH) - Self^.RADIUS or^feet.y < 1.0 {
+            return^true^
+        }
         let^lo = floor_cell(feet - F3{x = Self^.RADIUS, y = 0.0, z = Self^.RADIUS})
-        let^hi = floor_cell(
-            feet + F3{x = Self^.RADIUS, y = Self^.BODY_HEIGHT - 0.001, z = Self^.RADIUS}
-        )
+        let^hi = floor_cell(feet + F3{x = Self^.RADIUS, y = Self^.BODY_HEIGHT - 0.001, z = Self^.RADIUS})
         for^y from^lo.y to^hi.y {
             for^z from^lo.z to^hi.z {
                 for^x from^lo.x to^hi.x {
@@ -298,11 +299,12 @@ def^Game {
     }
 
     can_craft = f^self^, recipe:i64^-> bool^{
-        if^recipe = 0 { return^self^.bag[2] >= 1 and^self^.bag[3] <= 995 }
-        if^recipe = 1 { return^self^.tool = 0 and^self^.bag[3] >= 5 }
-        if^recipe = 2 { return^self^.tool = 1 and^self^.bag[1] >= 3 and^self^.bag[3] >= 2 }
-        if^recipe = 3 { return^self^.bag[7] >= 1 and^self^.bag[3] >= 1 and^self^.bag[6] <= 995 }
-        return^false^
+        for^recipe:
+        when^0: self^.bag[2] >= 1 and^self^.bag[3] <= 995
+        when^1: self^.tool = 0 and^self^.bag[3] >= 5
+        when^2: self^.tool = 1 and^self^.bag[1] >= 3 and^self^.bag[3] >= 2
+        when^3: self^.bag[7] >= 1 and^self^.bag[3] >= 1 and^self^.bag[6] <= 995
+        other^: false^;
     }
 
     craft = p^self^, recipe:i64^-> bool^{
@@ -310,26 +312,24 @@ def^Game {
             say("NOT ENOUGH MATERIALS, OR UPGRADE ALREADY OWNED")
             return^false^
         }
-        if^recipe = 0 {
+        for^recipe {
+        when^0:
             self^.bag[2] -= 1
             self^.bag[3] += 4
             say("MADE FOUR PLANKS")
             return^true^
-        }
-        if^recipe = 1 {
+        when^1:
             self^.bag[3] -= 5
             self^.tool := 1
             say("WOODEN PICK - NOW YOU CAN MINE STONE")
             return^true^
-        }
-        if^recipe = 2 {
+        when^2:
             self^.bag[1] -= 3
             self^.bag[3] -= 2
             self^.tool := 2
             say("STONE PICK - FASTER MINING")
             return^true^
-        }
-        if^recipe = 3 {
+        when^3:
             self^.bag[7] -= 1
             self^.bag[3] -= 1
             self^.bag[6] += 4
@@ -579,9 +579,13 @@ let^respawn = p^{
 let^generate = p^seed:u32^{
     game := Game{version = 1, seed = seed}
     day_time := 90.0
-    for^i in^0 .. MAX_DEBRIS { debris[i] := Debris{} }
     message_time := 0.0
-    for^i in^0 .. VOLUME { blocks[i] := BlockType.AIR }
+    for^i in^0 .. MAX_DEBRIS {
+        debris[i] := Debris{}
+    }
+    for^i in^0 .. VOLUME {
+        blocks[i] := BlockType.AIR
+    }
     for^z in^0 .. DEPTH {
         for^x in^0 .. WIDTH {
             let^top = ground_height(x, z)
@@ -622,7 +626,9 @@ let^generate = p^seed:u32^{
                         y = f32^(y) + 0.5 - cy,
                         z = f32^(z) + 0.5 - cz
                     }
-                    if^length_sq(d) < 3.2 { put(cell(x, y, z), BlockType.AIR) }
+                    if^length_sq(d) < 3.2 {
+                        put(cell(x, y, z), BlockType.AIR)
+                    }
                 }
             }
         }
@@ -630,7 +636,9 @@ let^generate = p^seed:u32^{
     for^z from^4 to^DEPTH - 5 {
         for^x from^4 to^WIDTH - 5 {
             let^clearing = abs(x - 40) < 11 and^abs(z - 40) < 11
-            if^!clearing and^x % 4 = 0 and^z % 4 = 0 and^hash(x, 5, z, seed) % 3 = 0 { tree(x, z) }
+            if^!clearing and^x % 4 = 0 and^z % 4 = 0 and^hash(x, 5, z, seed) % 3 = 0 {
+                tree(x, z)
+            }
         }
     }
     tree(38, 34)            # The first resource is always a few steps away.
@@ -691,11 +699,18 @@ let^ray = f^origin:F3, direction:F3, reach:f32^-> Hit {
 # --- mining, building, and four recipes --------------------------------------
 
 let^drop_slot = f^b:BlockType -> i64^{
-    if^b = BlockType.GRASS or^b = BlockType.DIRT { return^0 }
-    if^b = BlockType.STONE or^b = BlockType.COBBLE { return^1 }
-    if^b = BlockType.COAL { return^7 }
+    for^b {
+    when^BlockType.GRASS, BlockType.DIRT:
+        return^0
+    when^BlockType.STONE, BlockType.COBBLE:
+        return^1
+    when^BlockType.COAL:
+        return^7
+    }
     for^i in^0 .. SLOTS {
-        if^SLOT_BLOCK[i] = b { return^i }
+        if^SLOT_BLOCK[i] = b {
+            return^i
+        }
     }
     return^-1
 }
@@ -745,21 +760,30 @@ let^get_game = f^data:u8^[..] -> Game {
     g.selected := i64^(get_u32(data, 69))
     return^g
 }
+
 let^same = f^a:u8^[..], b:u8^[..] -> bool^{
-    if^a.len != b.len { return^false^}
+    if^a.len != b.len {
+        return^false^
+    }
     for^i in^0 .. a.len {
-        if^a[i] != b[i] { return^false^}
+        if^a[i] != b[i] {
+            return^false^
+        }
     }
     return^true^
 }
 
 let^valid_save = f^g:Game, cells:u8^[..] -> bool^{
-    if^cells.len != VOLUME { return^false^}
+    if^cells.len != VOLUME {
+        return^false^
+    }
     if^g.version != 1 or^g.tool < 0 or^g.tool > 2 or^g.selected < 0 or^g.selected >= SLOTS {
         return^false^
     }
     for^i in^0 .. SLOTS {
-        if^g.bag[i] < 0 or^g.bag[i] > 999 { return^false^}
+        if^g.bag[i] < 0 or^g.bag[i] > 999 {
+            return^false^
+        }
     }
     var^lights:i64^= 0
     for^i in^0 .. cells.len {
@@ -778,11 +802,14 @@ let^valid_save = f^g:Game, cells:u8^[..] -> bool^{
     }
     for^z in^0 .. DEPTH {
         for^x in^0 .. WIDTH {
-            if^cells[z * WIDTH + x] != BlockType.BEDROCK { return^false^}
+            if^cells[z * WIDTH + x] != BlockType.BEDROCK {
+                return^false^
+            }
         }
     }
     return^true^
 }
+
 let^save_image = p^image:ref^u8^[grow^] {
     image.clear()
     image.append("GSM2".bytes)
@@ -790,24 +817,33 @@ let^save_image = p^image:ref^u8^[grow^] {
     image.append(blocks[..])
     put_f32(image, day_time)
 }
+
 let^restore = p^image:u8^[..] -> bool^{
     # Validate the whole image before changing anything in the game.
     let^grid_end = 4 + HEADER_SIZE + VOLUME
-    if^image.len < 4 { return^false^}
+    if^image.len < 4 {
+        return^false^
+    }
     let^legacy = same(image[0 .. 4], "GSM1".bytes)
     if^legacy {
-        if^image.len != grid_end { return^false^}
+        if^image.len != grid_end {
+            return^false^
+        }
     elif^!same(image[0 .. 4], "GSM2".bytes) or^image.len != grid_end + 4:
         return^false^
     }
     let^header = get_game(image[4 .. 4 + HEADER_SIZE])
     let^saved_blocks = image[4 + HEADER_SIZE .. grid_end]
-    if^!valid_save(header, saved_blocks) { return^false^}
+    if^!valid_save(header, saved_blocks) {
+        return^false^
+    }
     # The first version had no clock. Old worlds resume in the morning.
     var^saved_time:f32^= 90.0
     if^!legacy {
         let^clock = get_f32(image, grid_end)
-        if^!(clock >= 0.0 and^clock < DAY_LENGTH) { return^false^}
+        if^!(clock >= 0.0 and^clock < DAY_LENGTH) {
+            return^false^
+        }
         saved_time := clock
     }
     game := header
@@ -819,6 +855,7 @@ let^restore = p^image:u8^[..] -> bool^{
     dirty_all()
     return^true^
 }
+
 let^save_game = p^{
     var^image = u8^[grow^]{}
     save_image(ref^image)
@@ -828,6 +865,7 @@ let^save_game = p^{
         say("SAVE FAILED - CHECK THE WORKING DIRECTORY")
     }
 }
+
 let^load_game = p^{
     var^image = u8^[grow^]{}
     if^fs.read("mini_minecraft.sav", ref^image) != nil^{
@@ -882,7 +920,9 @@ let^pixel = p^out:ref^u8^[grow^], tile:i64^, x:i64^, y:i64^{
         let^ring = max(abs(x - 7), abs(y - 7))
         grain += if^ring % 3 = 0: -30 el^: 12;
     }
-    if^tile = 7 { grain += if^hash(x / 2, 0, y / 2, 17) % 3 = 0: -28 el^: 10; }
+    if^tile = 7 {
+        grain += if^hash(x / 2, 0, y / 2, 17) % 3 = 0: -28 el^: 10;
+    }
     if^tile = 8 {
         if^y % 4 = 0 or^(x + (y / 4) * 7) % 16 = 0 {
             grain := -42
@@ -898,9 +938,15 @@ let^pixel = p^out:ref^u8^[grow^], tile:i64^, x:i64^, y:i64^{
             grain := 18
         }
     }
-    if^tile = 10 and^hash(x / 2, 0, y / 2, 9) % 5 = 0 { color := Rgb{r = 32, g = 34, b = 39} }
-    if^tile = 11 { grain := if^(x + y * 3) % 13 < 2: 20 el^: 0; }
-    if^tile = 12 { grain *= 2 }
+    if^tile = 10 and^hash(x / 2, 0, y / 2, 9) % 5 = 0 {
+        color := Rgb{r = 32, g = 34, b = 39}
+    }
+    if^tile = 11 {
+        grain := if^(x + y * 3) % 13 < 2: 20 el^: 0;
+    }
+    if^tile = 12 {
+        grain *= 2
+    }
     if^tile = 13 {
         if^x < 2 or^x > 13 or^y < 2 or^y > 13 {
             color := Rgb{r = 94, g = 66, b = 39}
@@ -908,23 +954,31 @@ let^pixel = p^out:ref^u8^[grow^], tile:i64^, x:i64^, y:i64^{
             grain := if^x = 7 or^y = 7: 25 el^: 0;
         }
     }
-    if^tile >= WHITE_TILE { grain := 0 }
+    if^tile >= WHITE_TILE {
+        grain := 0
+    }
     out.push(u8^(clamp(color.r + grain, 0, 255)))
     out.push(u8^(clamp(color.g + grain, 0, 255)))
     out.push(u8^(clamp(color.b + grain, 0, 255)))
     out.push(255)
 }
+
 let^make_atlas = p^-> gfx.Texture {
     var^pixels = u8^[grow^]{}
     for^y in^0 .. TILE_SIZE {
         for^tile in^0 .. TILES {
-            for^x in^0 .. TILE_SIZE { pixel(ref^pixels, tile, x, y) }
+            for^x in^0 .. TILE_SIZE {
+                pixel(ref^pixels, tile, x, y)
+            }
         }
     }
     var^texture = gfx.texture2d(TILE_SIZE * TILES, TILE_SIZE)
-    if^texture.id = 0 or^!texture.update(pixels[..]) { fail("texture") }
+    if^texture.id = 0 or^!texture.update(pixels[..]) {
+        fail("texture")
+    }
     return^texture
 }
+
 let^atlas_uv = f^tile:i64^, x:f32^, y:f32^-> F2 {
     # Sample inside the tile, so the nearest sampler never grabs a pixel
     # from its neighbour, even right at the edge of a face.
@@ -960,15 +1014,18 @@ var^column_top:i64^[WIDTH * DEPTH] = {0 repeat^WIDTH * DEPTH}
 let^offset = f^c:Cell, dir:Cell, amount:i64^-> Cell {
     Cell{x = c.x + dir.x * amount, y = c.y + dir.y * amount, z = c.z + dir.z * amount}
 }
+
 let^sky_light = f^c:Cell -> f32^{
     if^c.x < 0 or^c.x >= WIDTH or^c.z < 0 or^c.z >= DEPTH { return^1.0 }
     if^c.y > column_top[c.z * WIDTH + c.x] { return^1.0 }
     return^0.32
 }
+
 let^face_visible = f^b:BlockType, neighbour:BlockType -> bool^{
     if^b = BlockType.WATER { return^neighbour = BlockType.AIR }
     return^neighbour = BlockType.AIR or^neighbour = BlockType.WATER
 }
+
 let^add_face = p^vertices:ref^Vertex[grow^], indices:ref^u32^[grow^], c:Cell, b:BlockType,
     face:i64^{
     let^n = NORMAL[face]
@@ -995,9 +1052,9 @@ let^add_face = p^vertices:ref^Vertex[grow^], indices:ref^u32^[grow^], c:Cell, b:
         let^p = position(c) + F3{x = 0.5, y = 0.5, z = 0.5} + position(n) * 0.5 +
             position(u) * (corner.x * 0.5) + position(v) * (corner.y * 0.5)
         let^uv = atlas_uv(tile_for(b, face), corner.x * 0.5 + 0.5, 0.5 - corner.y * 0.5)
-        vertices.push(
-            Vertex{pos = p, normal = position(n), uv = uv, shade = shade, material = f32^(u8^(b))}
-        )
+        vertices.push(Vertex{
+            pos = p, normal = position(n), uv = uv, shade = shade, material = f32^(u8^(b))
+        })
     }
     indices.push(base)
     indices.push(base + 1)
@@ -1006,6 +1063,7 @@ let^add_face = p^vertices:ref^Vertex[grow^], indices:ref^u32^[grow^], c:Cell, b:
     indices.push(base + 2)
     indices.push(base + 3)
 }
+
 let^rebuild_chunk = p^cx:i64^, cz:i64^{
     # Scratch lives only until this procedure returns. The GPU owns a copy.
     var^vertices = Vertex[grow^]{}
@@ -1029,21 +1087,32 @@ let^rebuild_chunk = p^cx:i64^, cz:i64^{
     if^meshes[i].indices.id != 0 { meshes[i].indices.dispose() }
     meshes[i] := Mesh{count = indices.len}
     if^indices.len > 0 {
-        meshes[i].vertices := gfx.buffer(gfx.BUFFER_VERTEX, vertices.bytes)
-        meshes[i].indices := gfx.buffer(gfx.BUFFER_INDEX, indices.bytes)
-        if^meshes[i].vertices.id = 0 or^meshes[i].indices.id = 0 { fail("chunk buffers") }
+        meshes[i].vertices := gfx.buffer(gfx.BUFFER_VERTEX, bytesof^vertices)
+        meshes[i].indices := gfx.buffer(gfx.BUFFER_INDEX, bytesof^indices)
+        if^meshes[i].vertices.id = 0 or^meshes[i].indices.id = 0 {
+            fail("chunk buffers")
+        }
     }
 }
+
 let^rebuild_dirty = p^{
     var^any = false^
-    for^i in^0 .. meshes.len { any := any or^meshes[i].dirty }
-    if^!any { return^}
+    for^i in^0 .. meshes.len {
+        any := any or^meshes[i].dirty
+    }
+    if^!any {
+        return^
+    }
     for^z in^0 .. DEPTH {
-        for^x in^0 .. WIDTH { column_top[z * WIDTH + x] := highest(x, z) }
+        for^x in^0 .. WIDTH {
+            column_top[z * WIDTH + x] := highest(x, z)
+        }
     }
     for^cz in^0 .. CHUNKS_Z {
         for^cx in^0 .. CHUNKS_X {
-            if^meshes[cz * CHUNKS_X + cx].dirty { rebuild_chunk(cx, cz) }
+            if^meshes[cz * CHUNKS_X + cx].dirty {
+                rebuild_chunk(cx, cz)
+            }
         }
     }
 }
@@ -1433,6 +1502,7 @@ let^hud = p^out:ref^HudVertex[grow^], size:F2, hit:Hit, progress:f32^, crafting:
             INK, 1.5)
     }
 }
+
 let^hud_vertex = "
 layout(location = 0) in vec2 a_pos;
 layout(location = 1) in vec2 a_uv;
@@ -1460,12 +1530,14 @@ let^world_checksum = f^-> u32^{
     for^i in^0 .. VOLUME { h := (h bitxor^u32^(blocks[i])) * 16777619 }
     return^h
 }
+
 let^same_bag = f^a:i64^[8], b:i64^[8] -> bool^{
     for^i:i64^from^0 to^7 {
         if^a[i] != b[i] { return^false^}
     }
     return^true^
 }
+
 let^gameplay_tests = p^{
     generate(123)
     let^checksum = world_checksum()
@@ -1717,12 +1789,18 @@ repeat^while^argument <....len {
     }
     argument += 2
 }
+
 if^test {
     gameplay_tests()
     if^frames < 0 { return^}
 }
+
 generate(seed)
-if^!gfx.open("R^: mini Minecraft", 1280, 800, gfx.WINDOW_RESIZABLE) { fail("cannot open a window") }
+
+if^!gfx.open("R^: mini Minecraft", 1280, 800, gfx.WINDOW_RESIZABLE) {
+    fail("cannot open a window")
+}
+
 var^atlas = make_atlas()
 let^sampler = gfx.sampler(gfx.NEAREST, gfx.CLAMP)
 var^world_pipeline = gfx.pipeline(
@@ -1758,11 +1836,11 @@ rebuild_dirty()
 var^hud_buffer = gfx.Buffer{}
 # One buffer, sized once for every fragment. Each frame uploads only the
 # live fragments; the GPU buffer is reused throughout.
-let^one_vertex:Vertex[1] = { Vertex{} }
+let^one_vertex = Vertex{}
 var^debris_buffer = gfx.buffer_sized(
     gfx.BUFFER_VERTEX,
-    MAX_DEBRIS * 6 * one_vertex.bytes.len,
-    one_vertex.bytes
+    MAX_DEBRIS * 6 * sizeof^Vertex,
+    bytesof^one_vertex
 )
 if^debris_buffer.id = 0 { fail("fragment buffer") }
 var^crafting = false^
@@ -1929,7 +2007,7 @@ repeat^while^gfx.frame() {
     # Reuse its GPU buffer until growth needs a larger one.
     var^hud_vertices = HudVertex[grow^]{}
     hud(ref^hud_vertices, screen, hit, progress, crafting, paused, help)
-    let^hud_bytes = hud_vertices.bytes
+    let^hud_bytes = bytesof^hud_vertices
     if^hud_buffer.id = 0 or^hud_buffer.size() < hud_bytes.len {
         if^hud_buffer.id != 0 { hud_buffer.dispose() }
         hud_buffer := gfx.buffer_sized(gfx.BUFFER_VERTEX, max(4096, hud_bytes.len * 2), hud_bytes)
@@ -1943,7 +2021,7 @@ repeat^while^gfx.frame() {
     let^up = right cross^ahead
     var^fragments = Vertex[grow^]{}
     debris_vertices(ref^fragments, right, up)
-    if^fragments.len > 0 and^!debris_buffer.update(fragments.bytes) { fail("fragment upload") }
+    if^fragments.len > 0 and^!debris_buffer.update(bytesof^fragments) { fail("fragment upload") }
     let^aspect = pixels.x / pixels.y
     let^camera = game.player.eye()
     let^view = look_at(camera, camera + ahead, F3{x = 0.0, y = 1.0, z = 0.0})
@@ -1957,33 +2035,33 @@ repeat^while^gfx.frame() {
     let^target = if^hit.found and^!crafting and^!paused:
         F4{ x = f32^(hit.at.x), y = f32^(hit.at.y), z = f32^(hit.at.z), w = progress }
         el^: F4{ w = -1.0 };
-    let^scene:Scene[1] = {Scene{
+    let^scene = Scene{
         view_proj = view_proj,
         eye = F4{x = camera.x, y = camera.y, z = camera.z, w = elapsed},
         target = target,
         lights = lamps,
         haze = haze,
         sun = sun
-    }}
+    }
     let^lens:f32^= math.tan(0.575)    # half the 1.15 radian field of view
-    var^sky = {Sky{
+    let^sky = Sky{
         ahead = { x = ahead.x / lens, y = ahead.y / lens, z = ahead.z / lens },
         right = { x = right.x, y = right.y, z = right.z },
         up = { x = up.x, y = up.y, z = up.z },
         info = { x = aspect, y = elapsed, z = if^underwater: 1.0 el^: 0.0; },
         sun = sun,
         haze = haze
-    }}
+    }
     let^canvas = { screen.x, screen.y, 0.0, 0.0 }
 
     if^gfx.begin_screen(haze.x, haze.y, haze.z, 1.0, true^) {
         sky_pipeline.bind()
-        gfx.push_uniforms(gfx.FRAGMENT, 0, sky.bytes)
+        gfx.push_uniforms(gfx.FRAGMENT, 0, bytesof^sky)
         gfx.draw(3)
         world_pipeline.bind()
         gfx.bind_texture(gfx.FRAGMENT, 0, atlas, sampler)
-        gfx.push_uniforms(gfx.VERTEX, 0, view_proj.m.bytes)
-        gfx.push_uniforms(gfx.FRAGMENT, 0, scene.bytes)
+        gfx.push_uniforms(gfx.VERTEX, 0, bytesof^view_proj.m)
+        gfx.push_uniforms(gfx.FRAGMENT, 0, bytesof^scene)
         for^i in^0 .. meshes.len {
             if^meshes[i].count = 0 { continue^}
             meshes[i].vertices.bind()
@@ -1997,7 +2075,7 @@ repeat^while^gfx.frame() {
         hud_pipeline.bind()
         gfx.bind_texture(gfx.FRAGMENT, 0, atlas, sampler)
         hud_buffer.bind()
-        gfx.push_uniforms(gfx.VERTEX, 0, canvas.bytes)
+        gfx.push_uniforms(gfx.VERTEX, 0, bytesof^canvas)
         gfx.draw(hud_vertices.len)
         gfx.end_pass()
     }
