@@ -527,6 +527,17 @@ def^Player {
 
     let^RADIUS = 16.0f32
     let^HEIGHT = 56.0f32
+    # Doom's top speeds (about 7.5 and 15 units a tic at 35 tics a second) and its
+    # gravity (1 unit a tic squared). A run off a ledge carries as far as in Doom.
+    let^WALK = 265.0f32
+    let^RUN = 530.0f32
+    let^GRAVITY = 1225.0f32
+
+    # Standing on the floor, so a moving floor carries the player with it.
+    on_ground = f^self^{
+        let^bottom, _^= contact(self^.pos, def^.RADIUS)
+        return^math.abs(self^.z - bottom) < 0.1
+    }
 
     take_damage = p^self^, damage:i64^{
         if^self^.health <= 0 or^won { return^}
@@ -544,7 +555,7 @@ def^Player {
         var^movement = forward * direction.y + right * direction.x
         let^amount = movement.length()
         if^amount > 1.0 { movement := movement * (1.0 / amount) }
-        movement := movement * ((if^running: f32^(260.0) el^: 170.0;) * STEP)
+        movement := movement * ((if^running: def^.RUN el^: def^.WALK;) * STEP)
         let^old = self^.pos
         let^steps = max(1, i64^(math.ceil(movement.length() / 4.0)))
         for^i from^1 to^steps {
@@ -556,15 +567,15 @@ def^Player {
                 -1,
                 false^
             )
-            let^floor_z = sectors[sector_at(self^.pos)].floor
+            let^floor_z, _^= contact(self^.pos, def^.RADIUS)
             if^floor_z > self^.z {
                 self^.z := floor_z
                 self^.falling := 0.0
             }
         }
-        let^ground = sectors[sector_at(self^.pos)].floor
+        let^ground, _^= contact(self^.pos, def^.RADIUS)
         if^self^.z > ground {
-            self^.falling -= 700.0 * STEP
+            self^.falling -= def^.GRAVITY * STEP
             self^.z := max(ground, self^.z + self^.falling * STEP)
         else^:
             self^.z := ground
@@ -680,9 +691,15 @@ def^Actor {
             self^.update_dying()
             return^
         }
-        let^floor_z = sectors[sector_at(self^.pos)].floor
-        self^.z := max(floor_z, self^.z - 220.0 * STEP)
-        if^monster(self^.kind) { self^.update_monster() }
+        if^monster(self^.kind) {
+            # Monsters move, so they rest on what they overlap, as the player does.
+            let^floor_z, _^= contact(self^.pos, self^.radius)
+            self^.z := max(floor_z, self^.z - 220.0 * STEP)
+            self^.update_monster()
+        else^:
+            let^floor_z = sectors[sector_at(self^.pos)].floor
+            self^.z := max(floor_z, self^.z - 220.0 * STEP)
+        }
     }
 
     pickup = p^self^{
@@ -841,7 +858,8 @@ def^Actor {
             true^
         )
         self^.pos := moved
-        self^.z := max(self^.z, sectors[sector_at(moved)].floor)
+        let^floor_z, _^= contact(moved, self^.radius)
+        self^.z := max(self^.z, floor_z)
     }
 
     sprite = f^self^{
@@ -910,7 +928,8 @@ let^reset_game = p^{
         let^at = i * 10
         if^u16le(things, at + 6) = 1 {
             player.pos := point(things, at)
-            player.z := sectors[sector_at(player.pos)].floor
+            let^floor_z, _^= contact(player.pos, Player.RADIUS)
+            player.z := floor_z
             player.yaw := f32^(i16le(things, at + 4)) * TAU / 360.0
             have_start := true^
         }
@@ -973,21 +992,52 @@ let^visible = f^a:F2, az:f32^, b:F2, bz:f32^{
     return^wall_distance(a, az, (b - a) * (1.0 / dist), (bz - az) / dist, dist) >= dist - 0.1
 }
 
-let^can_stand = f^pos:F2, z:f32^, radius:f32^, height:f32^, ignore:i64^, enemy:bool^{
+# Whether a body of this radius at pos overlaps a line. A tiny tolerance lets a
+# circle slide along an exactly tangent wall.
+let^overlaps = f^pos:F2, radius:f32^, line:Line {
+    return^F2.distance(pos, nearest_on_line(pos, line.a, line.b)) < radius - 0.01
+}
+
+# The floor and ceiling a body rests between. As in Doom, these are the highest
+# floor and the lowest ceiling of every sector the body overlaps, not just the one
+# under its centre: it stays on a ledge until it is clear of it, steps onto a
+# ledge as soon as it reaches it, and never drops into a gap narrower than itself.
+let^contact = f^pos:F2, radius:f32^{
     let^here = sectors[sector_at(pos)]
-    if^here.floor > z + 24.0 or^here.ceiling < max(z, here.floor) + height { return^false^}
+    var^bottom = here.floor
+    var^top = here.ceiling
     for^line in^lines {
-        # A tiny tolerance lets a circle slide along an exactly tangent wall.
-        if^F2.distance(pos, nearest_on_line(pos, line.a, line.b)) >= radius - 0.01 { continue^}
-        let^back = back_sector(line)
-        if^back < 0 or^(line.flags bitand^1) != 0 or^(enemy and^(line.flags bitand^2) != 0) {
+        if^line.back < 0 or^!overlaps(pos, radius, line) { continue^}
+        let^a = sectors[front_sector(line)]
+        let^b = sectors[back_sector(line)]
+        bottom := max(bottom, max(a.floor, b.floor))
+        top := min(top, min(a.ceiling, b.ceiling))
+    }
+    return^bottom, top
+}
+
+# Whether a body at pos overlaps the sector with this index.
+let^touches = f^pos:F2, radius:f32^, index:i64^{
+    if^sector_at(pos) = index { return^true^}
+    for^line in^lines {
+        if^front_sector(line) != index and^back_sector(line) != index { continue^}
+        if^overlaps(pos, radius, line) { return^true^}
+    }
+    return^false^
+}
+
+let^can_stand = f^pos:F2, z:f32^, radius:f32^, height:f32^, ignore:i64^, enemy:bool^{
+    for^line in^lines {
+        if^!overlaps(pos, radius, line) { continue^}
+        if^line.back < 0 or^(line.flags bitand^1) != 0 or^(enemy and^(line.flags bitand^2) != 0) {
             return^false^
         }
-        let^a = sectors[front_sector(line)]
-        let^b = sectors[back]
-        let^bottom = max(a.floor, b.floor)
-        let^top = min(a.ceiling, b.ceiling)
-        if^bottom > z + 24.0 or^top - max(z, bottom) < height { return^false^}
+    }
+    # Doom's three tests: the opening fits the body, the body fits under the
+    # ceiling, and the floor is no more than a step up.
+    let^bottom, top = contact(pos, radius)
+    if^top - bottom < height or^top - max(z, bottom) < height or^bottom > z + 24.0 {
+        return^false^
     }
     for^i in^0 .. actors.len {
         let^a = ref^actors[i]
@@ -1082,9 +1132,13 @@ let^activate_line = p^index:i64^, crossing:bool^{
 }
 
 let^occupied = f^index:i64^, ceiling:f32^{
-    if^sector_at(player.pos) = index and^player.z + Player.HEIGHT > ceiling { return^true^}
+    # Anyone overlapping the sector, not only standing over it, holds a door or
+    # lift back, so nobody is shut inside a wall.
+    if^player.z + Player.HEIGHT > ceiling and^touches(player.pos, Player.RADIUS, index) {
+        return^true^
+    }
     for^a in^actors {
-        if^a.alive and^a.solid and^sector_at(a.pos) = index and^a.z + Player.HEIGHT > ceiling {
+        if^a.alive and^a.solid and^a.z + Player.HEIGHT > ceiling and^touches(a.pos, a.radius, index) {
             return^true^
         }
     }
@@ -1136,9 +1190,6 @@ let^move_floor = p^i:i64^, amount:f32^{
         }
     }
     let^new_floor = s.floor
-    if^sector_at(player.pos) = i and^math.abs(player.z - old_floor) < 0.1 {
-        player.z := new_floor
-    }
     for^k in^0 .. actors.len {
         let^a = ref^actors[k]
         if^a.alive and^sector_at(a.pos) = i and^math.abs(a.z - old_floor) < 0.1 {
@@ -1154,7 +1205,14 @@ let^move_sectors = p^{
         if^motion >= 1 and^motion <= 4 {
             move_ceiling(i, amount)
         elif^motion >= 5:
+            # The player rides the highest floor under them: a lift going down
+            # beside a ledge they still overlap leaves them on the ledge.
+            let^riding = player.on_ground()
             move_floor(i, amount)
+            if^riding {
+                let^floor_z, _^= contact(player.pos, Player.RADIUS)
+                player.z := floor_z
+            }
         }
     }
 }
@@ -1949,10 +2007,13 @@ let^step_game = p^{
     if^playing and^was_playing {
         # Keep a short press until a tick consumes it: a press and release can
         # both arrive between rendered frames.
-        if^!wait_for_fire and^(gfx.mouse_pressed(gfx.MOUSE_LEFT) or^gfx.key_pressed("Left Ctrl") or^
-            gfx.key_pressed("Right Ctrl")) {
-                fire_pending := true^
-            }
+        if^!wait_for_fire and^(
+            gfx.mouse_pressed(gfx.MOUSE_LEFT)
+            or^gfx.key_pressed("Left Ctrl")
+            or^gfx.key_pressed("Right Ctrl")
+        ) {
+            fire_pending := true^
+        }
         if^gfx.key_pressed("1") { player.weapon := 1 }
         if^gfx.key_pressed("2") { player.weapon := 2 }
         if^gfx.key_pressed("3") and^player.shotgun { player.weapon := 3 }
@@ -1978,7 +2039,9 @@ let^step_game = p^{
         accumulator := 0.0
         fire_pending := false^
     }
-    if^(player.health <= 0 or^won) and^gfx.mouse_relative() { gfx.set_mouse_relative(false^) }
+    if^(player.health <= 0 or^won) and^gfx.mouse_relative() {
+        gfx.set_mouse_relative(false^)
+    }
 }
 
 # The world mesh, rebuilt every frame, drawn from the player's eye; then the
