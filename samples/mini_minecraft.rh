@@ -87,10 +87,10 @@ let^SLOT_NAME = { "DIRT", "STONE", "WOOD", "PLANKS", "LEAVES", "SAND", "LAMPS", 
 
 def^Cell {
     self^{ x:i64^= 0, y:i64^= 0, z:i64^= 0 }
-    op^= = f^self^, other:Cell -> bool^{
+    op^= = f^self^, other:ref^Cell -> bool^{
         self^.x = other.x and^self^.y = other.y and^self^.z = other.z
     }
-    op^+ = f^self^, other:Cell -> Cell {
+    op^+ = f^self^, other:ref^Cell -> Cell {
         Cell{x = self^.x + other.x, y = self^.y + other.y, z = self^.z + other.z}
     }
 }
