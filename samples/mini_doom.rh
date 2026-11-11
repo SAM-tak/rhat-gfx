@@ -617,7 +617,9 @@ def^Player {
                 found := if^usable: i el^: -1;
             }
         }
-        if^found >= 0 { activate_line(found, false^) }
+        if^found >= 0 {
+            activate_line(found, false^)
+        }
     }
 
     shoot = p^self^{
@@ -850,12 +852,9 @@ def^Actor {
         if^self^.attacking > 0.0 or^dist < 1.0 { return^}
         let^speed = if^self^.kind = 3002 or^self^.kind = 58: f32^(105.0) el^: 58.0;
         let^moved = slide(
-            self^.pos,
-            self^.z,
-            delta * (speed * STEP / dist),
-            self^.radius,
-            self^.slot,
-            true^
+            self^.pos, self^.z,
+            delta * (speed * STEP / dist), self^.radius,
+            self^.slot, true^
         )
         self^.pos := moved
         let^floor_z, _^= contact(moved, self^.radius)
