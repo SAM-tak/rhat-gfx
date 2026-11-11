@@ -1020,7 +1020,7 @@ let^slide = f^pos:F2, z:f32^, delta:F2, radius:f32^, ignore:i64^, enemy:bool^{
 
 let^neighbor_limits = f^sector:i64^{
     var^low = sectors[sector].start_floor
-    var^top:f32^= 32768.0
+    var^top = 32768.0f32
     for^i in^0 .. lines.len {
         let^a = front_sector(lines[i])
         let^b = back_sector(lines[i])
@@ -1136,10 +1136,14 @@ let^move_floor = p^i:i64^, amount:f32^{
         }
     }
     let^new_floor = s.floor
-    if^sector_at(player.pos) = i and^math.abs(player.z - old_floor) < 0.1 { player.z := new_floor }
-    for^k from^0 to^actors.len - 1 {
+    if^sector_at(player.pos) = i and^math.abs(player.z - old_floor) < 0.1 {
+        player.z := new_floor
+    }
+    for^k in^0 .. actors.len {
         let^a = ref^actors[k]
-        if^a.alive and^sector_at(a.pos) = i and^math.abs(a.z - old_floor) < 0.1 { a.z := new_floor }
+        if^a.alive and^sector_at(a.pos) = i and^math.abs(a.z - old_floor) < 0.1 {
+            a.z := new_floor
+        }
     }
 }
 
@@ -1206,12 +1210,13 @@ def^Fireball {
         self^.z := next_z
         self^.life -= STEP
         if^F2.distance(next, player.pos) < 22.0 and^next_z > player.z
-            and^next_z < player.z + Player.HEIGHT {
+        and^next_z < player.z + Player.HEIGHT {
             player.take_damage(10 + random_int(15))
             self^.life := 0.0
         }
     }
 }
+
 var^fireballs = Fireball[max^64]{}
 var^sounds = audio.Sound[grow^]{}
 
@@ -1405,15 +1410,9 @@ let^world_mesh = p^out:ref^Vertex[grow^] {
             let^original = if^plane = 0: s.floor_pic el^: s.ceiling_pic;
             let^texture = animated_flat(original);
             let^shade = if^original < 0: f32^(-1.0) el^: lighting(triangle.sector);
-            out.push(
-                vertex(triangle.a, height, triangle.a.x / 64.0, triangle.a.y / 64.0, texture, shade)
-            )
-            out.push(
-                vertex(triangle.b, height, triangle.b.x / 64.0, triangle.b.y / 64.0, texture, shade)
-            )
-            out.push(
-                vertex(triangle.c, height, triangle.c.x / 64.0, triangle.c.y / 64.0, texture, shade)
-            )
+            out.push(vertex(triangle.a, height, triangle.a.x / 64.0, triangle.a.y / 64.0, texture, shade))
+            out.push(vertex(triangle.b, height, triangle.b.x / 64.0, triangle.b.y / 64.0, texture, shade))
+            out.push(vertex(triangle.c, height, triangle.c.x / 64.0, triangle.c.y / 64.0, texture, shade))
         }
     }
     for^ref^line in^lines {
@@ -1434,41 +1433,29 @@ let^world_mesh = p^out:ref^Vertex[grow^] {
             let^shade = lighting(side.sector) * (if^math.abs(a.x - b.x) < 0.1: 0.88 el^: 1.0;)
             if^other_id < 0 {
                 if^side.middle < 0 { continue^}
-                let^anchor = if^(line.flags bitand^16) != 0: s.floor + f32^(
-                    pictures[side.middle].h
-                ) el^: s.ceiling;
+                let^anchor = if^(line.flags bitand^16) != 0: s.floor + f32^(pictures[side.middle].h)
+                             el^: s.ceiling;
                 add_wall(out, a, b, s.floor, s.ceiling, side.middle, side.offset, anchor, shade)
                 continue^
             }
             let^other = sectors[sides[other_id].sector]
             if^side.upper >= 0 and^!(s.ceiling_pic < 0 and^other.ceiling_pic < 0) {
-                let^anchor = if^(line.flags bitand^8) != 0: s.ceiling el^: other.ceiling + f32^(
-                    pictures[side.upper].h
-                );
+                let^anchor = if^(line.flags bitand^8) != 0: s.ceiling
+                             el^: other.ceiling + f32^(pictures[side.upper].h);
                 add_wall(
-                    out,
-                    a,
-                    b,
-                    max(s.floor, other.ceiling),
-                    s.ceiling,
-                    side.upper,
-                    side.offset,
-                    anchor,
-                    shade
+                    out, a, b,
+                    max(s.floor, other.ceiling), s.ceiling,
+                    side.upper, side.offset,
+                    anchor, shade
                 )
             }
             if^side.lower >= 0 {
                 let^anchor = if^(line.flags bitand^16) != 0: s.ceiling el^: other.floor;
                 add_wall(
-                    out,
-                    a,
-                    b,
-                    s.floor,
-                    min(s.ceiling, other.floor),
-                    side.lower,
-                    side.offset,
-                    anchor,
-                    shade
+                    out, a, b,
+                    s.floor, min(s.ceiling, other.floor),
+                    side.lower, side.offset,
+                    anchor, shade
                 )
             }
             if^side.middle >= 0 {
@@ -1573,12 +1560,7 @@ let^text = p^out:ref^HudVertex[grow^], x:f32^, y:f32^, words:read^u8^[..], color
         let^w = f32^(pictures[id].w)
         let^h = f32^(pictures[id].h)
         hud_quad(
-            out,
-            cursor + 1.0,
-            y + 1.0,
-            w,
-            h,
-            id,
+            out, cursor + 1.0, y + 1.0, w, h, id,
             Color{r = 0.0, g = 0.0, b = 0.0, a = color.a}
         )
         hud_quad(out, cursor, y, w, h, id, color)
@@ -1603,12 +1585,7 @@ let^map_line = p^out:ref^HudVertex[grow^], a:F2, b:F2, color:Color {
 
 let^automap = p^out:ref^HudVertex[grow^], screen:F2 {
     hud_quad(
-        out,
-        0.0,
-        0.0,
-        screen.x,
-        screen.y - 34.0,
-        0,
+        out, 0.0, 0.0, screen.x, screen.y - 34.0, 0,
         Color{ r = 0.015, g = 0.025, b = 0.025, a = 0.94 }
     )
     let^center = F2{ x = screen.x * 0.5, y = (screen.y - 34.0) * 0.5 }
@@ -1964,10 +1941,10 @@ let^step_game = p^{
         gfx.set_mouse_relative(playing and^frames < 0)
         wait_for_fire := true^
     }
-    let^fire_down = gfx.mouse_down(
-        gfx.MOUSE_LEFT
-    ) or^gfx.key_down("Left Ctrl") or^gfx.key_down("Right Ctrl")
-    if^!fire_down { wait_for_fire := false^}
+    let^fire_down = gfx.mouse_down(gfx.MOUSE_LEFT) or^gfx.key_down("Left Ctrl") or^gfx.key_down("Right Ctrl")
+    if^!fire_down {
+        wait_for_fire := false^
+    }
     let^dt = if^frames > 0: STEP el^: min(f32^(gfx.delta_time()), 0.1);
     if^playing and^was_playing {
         # Keep a short press until a tick consumes it: a press and release can
